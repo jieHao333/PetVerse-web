@@ -1,0 +1,162 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ========== PetVerse 设计系统（单色 · 墨色极简） ========== */
+:root {
+  --pv-ink: #17181c;
+  --pv-ink-soft: #2b2d33;
+  --pv-text: #17181c;
+  --pv-text-secondary: #80858f;
+  --pv-bg: #f6f6f4;
+  --pv-border: #e6e5e1;
+  --pv-tint: #f2f2ef;
+  --pv-shadow-sm: 0 1px 3px rgba(23, 24, 28, 0.05);
+  --pv-shadow: 0 8px 24px rgba(23, 24, 28, 0.07);
+  --pv-shadow-lg: 0 16px 44px rgba(23, 24, 28, 0.12);
+  --pv-radius: 16px;
+
+  /* Element Plus 主题覆写（墨色单色系） */
+  --el-color-primary: #17181c;
+  --el-color-primary-light-3: #5c5d60;
+  --el-color-primary-light-5: #8a8b8e;
+  --el-color-primary-light-7: #b9b9bc;
+  --el-color-primary-light-8: #d1d1d2;
+  --el-color-primary-light-9: #e8e8e8;
+  --el-color-primary-dark-2: #121316;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', Arial, sans-serif;
+  font-size: 14px;
+  color: var(--pv-text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--pv-bg);
+}
+
+a {
+  color: var(--pv-ink);
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+a:hover {
+  opacity: 0.65;
+}
+
+::selection {
+  background: rgba(23, 24, 28, 0.14);
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d3cf;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b5b4b0;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 统一页面容器：全宽铺满、留白、滚动 */
+.page-container {
+  width: 100%;
+  margin: 0;
+  padding: 28px 40px 48px;
+  min-height: calc(100vh - 60px);
+}
+@media (max-width: 768px) {
+  .page-container {
+    padding: 20px 16px 32px;
+  }
+}
+
+/* 通用面板 */
+.pv-panel {
+  background: #fff;
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius);
+  box-shadow: var(--pv-shadow-sm);
+}
+
+/* ========== Element Plus 全局精致化 ========== */
+.el-card {
+  border-radius: var(--pv-radius);
+  border-color: var(--pv-border);
+  box-shadow: var(--pv-shadow-sm);
+}
+
+.el-button {
+  font-weight: 500;
+  transition: all 0.22s ease;
+}
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link) {
+  background: var(--pv-ink);
+  border-color: var(--pv-ink);
+  box-shadow: 0 4px 12px rgba(23, 24, 28, 0.18);
+}
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link):hover,
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link):focus {
+  background: var(--pv-ink-soft);
+  border-color: var(--pv-ink-soft);
+  box-shadow: 0 6px 16px rgba(23, 24, 28, 0.24);
+  transform: translateY(-1px);
+}
+.el-button--default:not(.is-text):not(.is-link):hover {
+  transform: translateY(-1px);
+}
+
+.el-dialog,
+.el-message-box {
+  border-radius: 18px;
+}
+
+.el-input__wrapper,
+.el-textarea__inner {
+  box-shadow: 0 0 0 1px #e2e1dd inset;
+}
+.el-input__wrapper:hover,
+.el-textarea__inner:hover {
+  box-shadow: 0 0 0 1px #c9c8c4 inset;
+}
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--pv-ink) inset;
+}
+
+.el-avatar {
+  background: var(--pv-ink);
+  color: #fff;
+}
+
+/* 路由切换过渡 */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
