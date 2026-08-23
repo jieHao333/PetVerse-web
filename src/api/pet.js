@@ -3,6 +3,9 @@ import request from './request'
 /** 查询当前用户的宠物，无宠物返回 null */
 export const getMyPet = () => request.get('/pet/me', { params: { userId: getUserId() } })
 
+/** 按用户ID查询宠物（用户主页展示他人宠物），无宠物返回 null */
+export const getPetByUserId = (userId) => request.get('/pet/me', { params: { userId } })
+
 /** 获取宠物图鉴列表 */
 export const getCatalog = () => request.get('/pet/catalog')
 

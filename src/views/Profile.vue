@@ -2,8 +2,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
-import { getMe, updateUser } from '@/api/user'
+import { getMe, updateUser, uploadAvatar } from '@/api/user'
 import { getMyPet, renamePet } from '@/api/pet'
+import { getNotePage } from '@/api/note'
 
 const router = useRouter()
 
@@ -13,6 +14,25 @@ const profileForm = reactive({ nickname: '', avatar: '' })
 const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
 const savingProfile = ref(false)
 const savingPwd = ref(false)
+
+// 头像上传状态
+const uploadingAvatar = ref(false)
+
+// 上传头像到阿里云 OSS，成功后即时刷新展示与本地用户信息
+const onUploadAvatar = async ({ file }) => {
+  if (uploadingAvatar.value) return
+  uploadingAvatar.value = true
+  try {
+    user.value = await uploadAvatar(file)
+    profileForm.avatar = user.value.avatar || ''
+    localStorage.setItem('user', JSON.stringify(user.value))
+    ElMessage.success('头像已更新')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    uploadingAvatar.value = false
+  }
+}
 
 // 宠物改名弹窗状态
 const renameDialog = ref(false)
@@ -48,6 +68,24 @@ const petProgress = computed(() => {
   return Math.min(100, Math.round((pet.value.exp / pet.value.nextLevelExp) * 100))
 })
 
+// 我的笔记（仅当前用户，与笔记广场区分）
+const myNotes = ref([])
+const loadingNotes = ref(false)
+
+const formatTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
+
+const loadMyNotes = async (userId) => {
+  loadingNotes.value = true
+  try {
+    const page = await getNotePage({ userId, pageNum: 1, pageSize: 20 })
+    myNotes.value = page?.records || []
+  } catch {
+    myNotes.value = []
+  } finally {
+    loadingNotes.value = false
+  }
+}
+
 onMounted(async () => {
   try {
     user.value = await getMe()
@@ -61,6 +99,10 @@ onMounted(async () => {
     pet.value = await getMyPet()
   } catch {
     pet.value = null
+  }
+  // 加载我的笔记，失败不阻断页面
+  if (user.value?.id) {
+    loadMyNotes(user.value.id)
   }
 })
 
@@ -155,11 +197,19 @@ const onSavePassword = async () => {
           </template>
 
           <div class="user-head">
-          <div class="avatar-ring">
-            <el-avatar :size="80" :src="profileForm.avatar || ''">
-              {{ (profileForm.nickname || user?.username || 'U')[0].toUpperCase() }}
-            </el-avatar>
-          </div>
+          <el-upload
+            class="avatar-uploader"
+            :show-file-list="false"
+            accept="image/png,image/jpeg,image/jpg,image/webp"
+            :http-request="onUploadAvatar"
+          >
+            <div class="avatar-ring">
+              <el-avatar :size="80" :src="profileForm.avatar || ''">
+                {{ (profileForm.nickname || user?.username || 'U')[0].toUpperCase() }}
+              </el-avatar>
+            </div>
+            <div class="avatar-tip">{{ uploadingAvatar ? '上传中...' : '点击更换头像' }}</div>
+          </el-upload>
           <div>
             <div class="name">{{ profileForm.nickname || user?.nickname || '未设置' }}</div>
             <div class="username">@{{ user?.username }}</div>
@@ -170,15 +220,33 @@ const onSavePassword = async () => {
           <el-form-item label="昵称">
             <el-input v-model.trim="profileForm.nickname" placeholder="你的社交展示名" maxlength="30" />
           </el-form-item>
-          <el-form-item label="头像地址">
-            <el-input v-model.trim="profileForm.avatar" placeholder="https://...图片链接" />
-          </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="savingProfile" @click="onSaveProfile">
               保存资料
             </el-button>
           </el-form-item>
         </el-form>
+        </el-card>
+
+        <!-- 我的笔记 -->
+        <el-card v-loading="loadingNotes" shadow="never">
+          <template #header>
+            <div class="notes-header">
+              <span class="card-title">我的笔记</span>
+              <el-button size="small" round @click="router.push('/notes')">去笔记广场</el-button>
+            </div>
+          </template>
+          <div v-if="myNotes.length" class="my-note-list">
+            <div v-for="note in myNotes" :key="note.id" class="my-note-item">
+              <div class="my-note-title-row">
+                <span class="my-note-title">{{ note.title }}</span>
+                <el-tag v-if="note.category" size="small" round>{{ note.category }}</el-tag>
+              </div>
+              <div class="my-note-content">{{ note.content }}</div>
+              <div class="my-note-time">{{ formatTime(note.createTime) }}</div>
+            </div>
+          </div>
+          <p v-else class="my-notes-empty">还没有发布过笔记，去笔记广场写第一篇吧</p>
         </el-card>
       </div>
 
@@ -294,6 +362,19 @@ const onSavePassword = async () => {
   border: 3px solid #fff;
   font-size: 26px;
 }
+.avatar-uploader {
+  cursor: pointer;
+  text-align: center;
+  flex-shrink: 0;
+}
+.avatar-uploader:hover .avatar-ring {
+  opacity: 0.85;
+}
+.avatar-tip {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  margin-top: 6px;
+}
 .name {
   font-size: 22px;
   font-weight: 700;
@@ -376,5 +457,60 @@ const onSavePassword = async () => {
   gap: 14px;
   padding: 16px 0;
   color: var(--pv-text-secondary);
+}
+
+/* 我的笔记 */
+.notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.my-note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.my-note-item {
+  border: 1px solid var(--pv-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #fff;
+}
+.my-note-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.my-note-title {
+  font-weight: 600;
+  color: var(--pv-text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.my-note-content {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--pv-text-secondary);
+  line-height: 1.7;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.my-note-time {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  text-align: right;
+}
+.my-notes-empty {
+  color: var(--pv-text-secondary);
+  text-align: center;
+  padding: 18px 0;
 }
 </style>

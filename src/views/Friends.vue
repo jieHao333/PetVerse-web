@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import { searchUsers } from '@/api/user'
 import {
@@ -14,6 +15,13 @@ import {
 } from '@/api/social'
 
 const activeTab = ref('friends')
+
+const router = useRouter()
+
+// 点击用户名跳转用户主页（账号信息 + 宠物 + 笔记）
+const gotoProfile = (userId) => {
+  if (userId) router.push(`/user/${userId}`)
+}
 
 // 好友与申请数据
 const friends = ref([])
@@ -41,6 +49,16 @@ const messageBox = ref(null)
 let chatTimer = null
 
 const myId = computed(() => JSON.parse(localStorage.getItem('user') || 'null')?.id)
+
+// 本人头像（本地登录信息）
+const myUser = computed(() => JSON.parse(localStorage.getItem('user') || 'null'))
+const myAvatar = computed(() => myUser.value?.avatar || '')
+const myName = computed(() => myUser.value?.nickname || myUser.value?.username || 'U')
+// 对方头像（好友列表 8 秒轮询，头像变更会自动同步）
+const friendAvatar = computed(() => chatFriend.value?.avatar || '')
+
+// 后端 Long 序列化为字符串，与本地缓存的 id 统一转字符串比较，避免类型不一致导致误判
+const isMine = (msg) => String(msg.senderId) === String(myId.value)
 
 const displayName = (u) => u?.nickname || u?.username || '用户'
 
@@ -239,7 +257,7 @@ onUnmounted(() => {
               {{ (user.nickname || user.username || 'U')[0].toUpperCase() }}
             </el-avatar>
             <div class="user-info">
-              <div class="user-name">{{ displayName(user) }}</div>
+              <div class="user-name name-link" @click="gotoProfile(user.id)">{{ displayName(user) }}</div>
               <div class="user-account">@{{ user.username }}</div>
             </div>
             <el-button
@@ -277,8 +295,8 @@ onUnmounted(() => {
                   {{ (friend.nickname || friend.username || 'U')[0].toUpperCase() }}
                 </el-avatar>
                 <div class="user-info">
-                  <div class="user-name">{{ displayName(friend) }}</div>
-                  <div class="user-account">@{{ friend.username }} · {{ formatTime(friend.createTime) }} 成为好友</div>
+                  <div class="user-name name-link" @click="gotoProfile(friend.userId)">{{ displayName(friend) }}</div>
+                  <div class="user-account">账号: {{ friend.username }}</div>
                 </div>
                 <div class="item-actions">
                   <el-button type="primary" size="small" round @click="openChat(friend)">聊天</el-button>
@@ -301,8 +319,8 @@ onUnmounted(() => {
                   {{ (req.fromNickname || req.fromUsername || 'U')[0].toUpperCase() }}
                 </el-avatar>
                 <div class="user-info">
-                  <div class="user-name">{{ req.fromNickname || req.fromUsername }}</div>
-                  <div class="user-account">@{{ req.fromUsername }} · {{ formatTime(req.createTime) }}</div>
+                  <div class="user-name name-link" @click="gotoProfile(req.fromUserId)">{{ req.fromNickname || req.fromUsername }}</div>
+                  <div class="user-account">账号: {{ req.fromUsername }} · {{ formatTime(req.createTime) }}</div>
                 </div>
                 <div v-if="req.status === 0" class="item-actions">
                   <el-button type="primary" size="small" round @click="onAccept(req)">同意</el-button>
@@ -331,12 +349,18 @@ onUnmounted(() => {
             v-for="msg in messages"
             :key="msg.id"
             class="msg"
-            :class="{ mine: msg.senderId === myId }"
+            :class="{ mine: isMine(msg) }"
           >
+            <el-avatar v-if="!isMine(msg)" class="msg-avatar" shape="square" :size="36" :src="friendAvatar">
+              {{ (chatFriend?.nickname || chatFriend?.username || 'U')[0].toUpperCase() }}
+            </el-avatar>
             <div class="bubble">
               <div class="bubble-text">{{ msg.content }}</div>
               <div class="bubble-time">{{ formatTime(msg.createTime) }}</div>
             </div>
+            <el-avatar v-if="isMine(msg)" class="msg-avatar" shape="square" :size="36" :src="myAvatar">
+              {{ myName[0].toUpperCase() }}
+            </el-avatar>
           </div>
         </div>
         <div class="chat-input">
@@ -414,6 +438,14 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--pv-text);
 }
+.name-link {
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.name-link:hover {
+  color: var(--pv-ink);
+  text-decoration: underline;
+}
 .user-account {
   font-size: 12px;
   color: var(--pv-text-secondary);
@@ -461,21 +493,42 @@ onUnmounted(() => {
 }
 .msg {
   display: flex;
-  margin-bottom: 12px;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
 }
 .msg.mine {
   justify-content: flex-end;
 }
+.msg-avatar {
+  flex-shrink: 0;
+  --el-avatar-border-radius: 6px;
+}
 .bubble {
-  max-width: 70%;
+  position: relative;
+  max-width: 65%;
   background: #fff;
-  border: 1px solid var(--pv-border);
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 8px 12px;
+  box-shadow: var(--pv-shadow-sm);
+}
+/* 气泡小三角指向头像，仿微信效果 */
+.bubble::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  border: 6px solid transparent;
+}
+.msg:not(.mine) .bubble::before {
+  left: -11px;
+  border-right-color: #fff;
 }
 .msg.mine .bubble {
   background: var(--pv-ink);
-  border-color: var(--pv-ink);
+}
+.msg.mine .bubble::before {
+  right: -11px;
+  border-left-color: var(--pv-ink);
 }
 .bubble-text {
   font-size: 14px;
