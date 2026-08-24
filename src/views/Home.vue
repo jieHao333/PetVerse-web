@@ -3,18 +3,28 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import { getMe } from '@/api/user'
-import { getMyPet, renamePet, signIn } from '@/api/pet'
+import { listMyPets, renamePet, setActivePet, signIn } from '@/api/pet'
 
 const router = useRouter()
 
 const pet = ref(null)
+// 用户名下全部宠物，一用户可多宠，仅一只出场
+const pets = ref([])
 const loading = ref(true)
 const signing = ref(false)
+// 正在切换出场的宠物ID，防止并发点击
+const switchingId = ref(null)
 
 // 改名弹窗状态
 const renameDialog = ref(false)
 const newName = ref('')
 const renaming = ref(false)
+
+// 拉取全部宠物，出场宠物作为主卡片展示；兼容存量数据无出场标记时取第一只
+const loadPets = async () => {
+  pets.value = await listMyPets()
+  pet.value = pets.value.find((p) => p.active) || pets.value[0] || null
+}
 
 const openRename = () => {
   newName.value = pet.value?.name || ''
@@ -29,13 +39,31 @@ const onRename = async () => {
   }
   renaming.value = true
   try {
-    pet.value = await renamePet(name)
+    const updated = await renamePet(pet.value.id, name)
+    const idx = pets.value.findIndex((p) => p.id === updated.id)
+    if (idx > -1) pets.value[idx] = updated
+    pet.value = updated
     renameDialog.value = false
     ElMessage.success(`宠物已改名为 ${name}`)
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
     renaming.value = false
+  }
+}
+
+// 切换出场宠物：发布动态等经验只发放给出场宠物
+const onSwitch = async (target) => {
+  if (target.active || switchingId.value) return
+  switchingId.value = target.id
+  try {
+    await setActivePet(target.id)
+    await loadPets()
+    ElMessage.success(`已切换 ${target.name} 出场`)
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    switchingId.value = null
   }
 }
 
@@ -49,7 +77,7 @@ onMounted(async () => {
   try {
     const me = await getMe()
     localStorage.setItem('user', JSON.stringify(me))
-    pet.value = await getMyPet()
+    await loadPets()
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
@@ -57,15 +85,23 @@ onMounted(async () => {
   }
 })
 
+// 签到为所有宠物增加经验，提示中标注升级的宠物
 const onSignIn = async () => {
   signing.value = true
   try {
     const res = await signIn()
-    pet.value = await getMyPet()
-    if (res.leveledUp) {
-      ElMessage.success(`签到成功！+${res.gainedExp} 经验，宠物升级到 Lv.${res.level}`)
+    await loadPets()
+    const leveled = (res.pets || []).filter((i) => i.leveledUp)
+    if (leveled.length) {
+      ElMessage.success(
+        `签到成功！+${res.gainedExp} 经验，全部 ${res.pets.length} 只宠物已领取，${leveled
+          .map((i) => i.name)
+          .join('、')} 升级啦`
+      )
     } else {
-      ElMessage.success(`签到成功！+${res.gainedExp} 经验，连续签到 ${res.signStreak} 天`)
+      ElMessage.success(
+        `签到成功！+${res.gainedExp} 经验，全部 ${res.pets.length} 只宠物已领取，连续签到 ${res.signStreak} 天`
+      )
     }
   } catch (e) {
     ElMessage.error(e.message)
@@ -143,8 +179,39 @@ const onSignIn = async () => {
         </div>
 
         <el-button type="primary" size="large" class="sign-btn" :loading="signing" @click="onSignIn">
-          每日签到 · 领取经验
+          每日签到 · 为所有宠物领取经验
         </el-button>
+      </el-card>
+
+      <!-- 我的宠物列表：可切换出场、前往领养新宠 -->
+      <el-card v-if="!loading && pets.length" shadow="never" class="pets-card">
+        <template #header>
+          <div class="pets-header">
+            <span class="card-title">我的宠物（{{ pets.length }}）</span>
+            <el-button size="small" round @click="router.push('/claim')">领养新宠物</el-button>
+          </div>
+        </template>
+        <div class="pets-row">
+          <div v-for="p in pets" :key="p.id" class="pet-chip" :class="{ active: p.active }">
+            <el-avatar :size="48" :src="p.imageUrl || ''">{{ (p.name || '宠')[0] }}</el-avatar>
+            <div class="pet-chip-info">
+              <div class="pet-chip-name">
+                {{ p.name }} <span class="pet-chip-lv">Lv.{{ p.level }}</span>
+              </div>
+              <div class="pet-chip-breed">{{ p.species }} · {{ p.breed }}</div>
+            </div>
+            <el-tag v-if="p.active" effect="dark" round size="small">出场中</el-tag>
+            <el-button
+              v-else
+              size="small"
+              round
+              :loading="switchingId === p.id"
+              @click="onSwitch(p)"
+            >
+              设为出场
+            </el-button>
+          </div>
+        </div>
       </el-card>
     </div>
 
@@ -314,6 +381,66 @@ const onSignIn = async () => {
   width: 280px;
   margin: 26px 32px 32px;
   letter-spacing: 2px;
+}
+
+/* 我的宠物列表 */
+.pets-card {
+  margin-top: 20px;
+}
+.pets-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.card-title {
+  font-weight: 700;
+  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title::before {
+  content: '';
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--pv-ink);
+}
+.pets-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pet-chip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--pv-border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: #fff;
+}
+.pet-chip.active {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--pv-ink);
+}
+.pet-chip-info {
+  flex: 1;
+  min-width: 0;
+}
+.pet-chip-name {
+  font-weight: 600;
+  color: var(--pv-text);
+}
+.pet-chip-lv {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  font-weight: 500;
+}
+.pet-chip-breed {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  margin-top: 2px;
 }
 @media (max-width: 900px) {
   .stat-chips {

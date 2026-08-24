@@ -63,7 +63,6 @@ const onSubmit = async () => {
             placeholder="密码"
             :prefix-icon="Lock"
             show-password
-            @keyup.enter="onSubmit"
           />
         </el-form-item>
         <el-button

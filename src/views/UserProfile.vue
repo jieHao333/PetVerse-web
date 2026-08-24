@@ -1,10 +1,11 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Search } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { getUserById } from '@/api/user'
 import { getPetByUserId } from '@/api/pet'
-import { getNotePage } from '@/api/note'
+import { getSpacePage } from '@/api/space'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,7 +13,67 @@ const router = useRouter()
 const loading = ref(true)
 const user = ref(null)
 const pet = ref(null)
-const notes = ref([])
+const spaces = ref([])
+
+// TA 的动态：无限滚动加载，每次 10 条，后端已按发布时间倒序（最新在最上面）
+const SPACE_PAGE_SIZE = 10
+const pageNum = ref(1)
+const loadingMore = ref(false)
+const finished = ref(false)
+const keyword = ref('')
+// 发布时间范围：[开始日期, 结束日期]，格式 YYYY-MM-DD，起止均含当天
+const dateRange = ref(null)
+const sentinelRef = ref(null)
+let scrollObserver = null
+
+// 触底继续加载下一页；失败不置 finished，下次滚动到底可重试；支持标题模糊匹配与发布时间范围过滤
+const loadMoreSpaces = async () => {
+  if (loadingMore.value || finished.value) return
+  loadingMore.value = true
+  try {
+    const page = await getSpacePage({
+      userId: route.params.id,
+      pageNum: pageNum.value,
+      pageSize: SPACE_PAGE_SIZE,
+      title: keyword.value || undefined,
+      // 选中的日期换算为当天零点与当天末尾，确保起止日期当天的动态都能命中
+      startTime: dateRange.value?.[0] ? `${dateRange.value[0]} 00:00:00` : undefined,
+      endTime: dateRange.value?.[1] ? `${dateRange.value[1]} 23:59:59` : undefined,
+    })
+    const records = page?.records || []
+    spaces.value = spaces.value.concat(records)
+    if (records.length < SPACE_PAGE_SIZE) {
+      finished.value = true
+    } else {
+      pageNum.value += 1
+    }
+  } catch {
+    // 加载失败仅保留已有数据，不阻断页面
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+const setupScrollLoad = () => {
+  if (!sentinelRef.value) return
+  // 提前 200px 触发预加载，滚动体验更连贯；离屏时不请求数据，达成“不向下翻就不加载”
+  scrollObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries[0].isIntersecting) loadMoreSpaces()
+    },
+    { rootMargin: '200px' },
+  )
+  scrollObserver.observe(sentinelRef.value)
+}
+
+// 搜索/清空：重置滚动状态后从第一页重新加载，仍支持触底继续加载
+const onSearchSpace = async () => {
+  if (loadingMore.value) return
+  spaces.value = []
+  pageNum.value = 1
+  finished.value = false
+  await loadMoreSpaces()
+}
 
 const displayName = computed(() => user.value?.nickname || user.value?.username || '用户')
 
@@ -25,7 +86,7 @@ const petProgress = computed(() => {
 // 时间格式化：2026-08-22T13:58 -> 2026-08-22 13:58
 const formatTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 
-// 三个数据源独立容错：用户不存在直接提示返回，宠物/笔记失败仅置空不阻断
+// 三个数据源独立容错：用户不存在直接提示返回，宠物/动态失败仅置空不阻断
 onMounted(async () => {
   const userId = route.params.id
   try {
@@ -44,12 +105,14 @@ onMounted(async () => {
   } catch {
     pet.value = null
   }
-  try {
-    const page = await getNotePage({ userId, pageNum: 1, pageSize: 50 })
-    notes.value = page?.records || []
-  } catch {
-    notes.value = []
-  }
+  // 首屏先加载第一页，后续由滚动触底按需加载；哨兵元素需等 DOM 渲染完成后再观察
+  await loadMoreSpaces()
+  await nextTick()
+  setupScrollLoad()
+})
+
+onUnmounted(() => {
+  scrollObserver?.disconnect()
 })
 </script>
 
@@ -110,22 +173,59 @@ onMounted(async () => {
         </el-card>
       </div>
 
-      <!-- 发布的笔记 -->
+      <!-- 发布的动态 -->
       <el-card shadow="never">
         <template #header>
-          <span class="card-title">TA 的笔记</span>
+          <span class="card-title">TA 的动态</span>
         </template>
-        <div v-if="notes.length" class="note-list">
-          <div v-for="note in notes" :key="note.id" class="note-item">
-            <div class="note-title-row">
-              <span class="note-title">{{ note.title }}</span>
-              <el-tag v-if="note.category" size="small" round>{{ note.category }}</el-tag>
+        <!-- 按标题/发布时间搜索该用户的动态，回车/清空/变更触发，重置后仍支持触底加载 -->
+        <div class="space-search">
+          <el-input
+            v-model.trim="keyword"
+            placeholder="按标题搜索 TA 的动态"
+            clearable
+            :prefix-icon="Search"
+            @keyup.enter="onSearchSpace"
+            @clear="onSearchSpace"
+          />
+          <el-date-picker
+            v-model="dateRange"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+            clearable
+            @change="onSearchSpace"
+          />
+        </div>
+        <div v-if="spaces.length" class="space-list">
+          <div v-for="item in spaces" :key="item.id" class="space-item">
+            <div class="space-title-row">
+              <span class="space-title">{{ item.title || '无标题动态' }}</span>
+              <el-tag v-if="item.category" size="small" round>{{ item.category }}</el-tag>
             </div>
-            <div class="note-content">{{ note.content }}</div>
-            <div class="note-time">{{ formatTime(note.createTime) }}</div>
+            <div class="space-content">{{ item.content }}</div>
+            <div v-if="item.mediaList && item.mediaList.length" class="space-media">
+              <template v-for="(media, idx) in item.mediaList.slice(0, 3)" :key="idx">
+                <img v-if="media.mediaType === 0" :src="media.url" alt="" />
+                <video v-else :src="media.url" preload="metadata" />
+              </template>
+              <span v-if="item.mediaList.length > 3" class="space-media-more">
+                +{{ item.mediaList.length - 3 }}
+              </span>
+            </div>
+            <div class="space-time">{{ formatTime(item.createTime) }}</div>
           </div>
         </div>
-        <p v-else class="empty-tip">还没有发布过笔记</p>
+        <!-- 滚动触底加载哨兵：常驻列表外，搜索重置后观察器无需重建 -->
+        <div ref="sentinelRef" class="space-load-tip">
+          <span v-if="loadingMore">加载中...</span>
+          <span v-else-if="finished && spaces.length">已经到底啦</span>
+        </div>
+        <p v-if="finished && !spaces.length" class="empty-tip">
+          {{ keyword || dateRange ? '没有搜索到相关动态' : '还没有发布过动态' }}
+        </p>
       </el-card>
     </div>
   </div>
@@ -249,24 +349,24 @@ onMounted(async () => {
   background: var(--pv-ink);
 }
 
-/* 笔记列表 */
-.note-list {
+/* 动态列表 */
+.space-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.note-item {
+.space-item {
   border: 1px solid var(--pv-border);
   border-radius: 12px;
   padding: 14px 16px;
   background: #fff;
 }
-.note-title-row {
+.space-title-row {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.note-title {
+.space-title {
   font-weight: 600;
   color: var(--pv-text);
   flex: 1;
@@ -275,7 +375,7 @@ onMounted(async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.note-content {
+.space-content {
   margin-top: 8px;
   font-size: 13px;
   color: var(--pv-text-secondary);
@@ -287,11 +387,56 @@ onMounted(async () => {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.note-time {
+.space-time {
   margin-top: 8px;
   font-size: 12px;
   color: var(--pv-text-secondary);
   text-align: right;
+}
+.space-media {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.space-media img,
+.space-media video {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--pv-border);
+}
+.space-media-more {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+}
+.space-load-tip {
+  text-align: center;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  padding: 6px 0 2px;
+}
+.space-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.space-search .el-input {
+  width: 240px;
+}
+/* 日期范围选择器默认 350px 偏宽，收窄与搜索框协调 */
+.space-search :deep(.el-date-editor) {
+  width: 250px;
+  flex-shrink: 0;
+}
+.space-search :deep(.el-range-separator) {
+  padding: 0 2px;
+}
+.space-search :deep(.el-range-input) {
+  font-size: 13px;
 }
 .empty-tip {
   color: var(--pv-text-secondary);

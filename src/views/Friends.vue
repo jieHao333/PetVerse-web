@@ -18,7 +18,7 @@ const activeTab = ref('friends')
 
 const router = useRouter()
 
-// 点击用户名跳转用户主页（账号信息 + 宠物 + 笔记）
+// 点击用户名跳转用户主页（账号信息 + 宠物 + 动态）
 const gotoProfile = (userId) => {
   if (userId) router.push(`/user/${userId}`)
 }

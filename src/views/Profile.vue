@@ -3,13 +3,15 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import { getMe, updateUser, uploadAvatar } from '@/api/user'
-import { getMyPet, renamePet } from '@/api/pet'
-import { getNotePage } from '@/api/note'
+import { listMyPets, renamePet, setActivePet } from '@/api/pet'
+import { getSpacePage } from '@/api/space'
 
 const router = useRouter()
 
 const user = ref(null)
 const pet = ref(null)
+// 用户名下全部宠物，一用户可多宠，仅一只出场
+const pets = ref([])
 const profileForm = reactive({ nickname: '', avatar: '' })
 const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
 const savingProfile = ref(false)
@@ -34,13 +36,17 @@ const onUploadAvatar = async ({ file }) => {
   }
 }
 
-// 宠物改名弹窗状态
+// 宠物改名弹窗状态，支持对任意一只宠物改名
 const renameDialog = ref(false)
+const renameTarget = ref(null)
 const newName = ref('')
 const renaming = ref(false)
+// 正在切换出场的宠物ID，防止并发点击
+const switchingId = ref(null)
 
-const openRename = () => {
-  newName.value = pet.value?.name || ''
+const openRename = (target) => {
+  renameTarget.value = target
+  newName.value = target?.name || ''
   renameDialog.value = true
 }
 
@@ -52,7 +58,10 @@ const onRename = async () => {
   }
   renaming.value = true
   try {
-    pet.value = await renamePet(name)
+    const updated = await renamePet(renameTarget.value.id, name)
+    const idx = pets.value.findIndex((p) => p.id === updated.id)
+    if (idx > -1) pets.value[idx] = updated
+    if (pet.value?.id === updated.id) pet.value = updated
     renameDialog.value = false
     ElMessage.success(`宠物已改名为 ${name}`)
   } catch (e) {
@@ -62,27 +71,48 @@ const onRename = async () => {
   }
 }
 
+// 拉取全部宠物，出场宠物作为卡片主体展示；兼容存量数据无出场标记时取第一只
+const loadPets = async () => {
+  pets.value = await listMyPets()
+  pet.value = pets.value.find((p) => p.active) || pets.value[0] || null
+}
+
+// 切换出场宠物：发布动态等经验只发放给出场宠物
+const onSetActive = async (target) => {
+  if (target.active || switchingId.value) return
+  switchingId.value = target.id
+  try {
+    await setActivePet(target.id)
+    await loadPets()
+    ElMessage.success(`已切换 ${target.name} 出场`)
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    switchingId.value = null
+  }
+}
+
 // 宠物升级进度百分比，满级或无升级需求时为 100%
 const petProgress = computed(() => {
   if (!pet.value || !pet.value.nextLevelExp) return 100
   return Math.min(100, Math.round((pet.value.exp / pet.value.nextLevelExp) * 100))
 })
 
-// 我的笔记（仅当前用户，与笔记广场区分）
-const myNotes = ref([])
-const loadingNotes = ref(false)
+// 我的动态（仅当前用户，与宠域空间广场区分）
+const mySpaces = ref([])
+const loadingSpaces = ref(false)
 
 const formatTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 
-const loadMyNotes = async (userId) => {
-  loadingNotes.value = true
+const loadMySpaces = async (userId) => {
+  loadingSpaces.value = true
   try {
-    const page = await getNotePage({ userId, pageNum: 1, pageSize: 20 })
-    myNotes.value = page?.records || []
+    const page = await getSpacePage({ userId, pageNum: 1, pageSize: 20 })
+    mySpaces.value = page?.records || []
   } catch {
-    myNotes.value = []
+    mySpaces.value = []
   } finally {
-    loadingNotes.value = false
+    loadingSpaces.value = false
   }
 }
 
@@ -96,13 +126,14 @@ onMounted(async () => {
   }
   // 加载宠物信息，无宠物时展示领养入口，失败不阻断页面
   try {
-    pet.value = await getMyPet()
+    await loadPets()
   } catch {
+    pets.value = []
     pet.value = null
   }
-  // 加载我的笔记，失败不阻断页面
+  // 加载我的动态，失败不阻断页面
   if (user.value?.id) {
-    loadMyNotes(user.value.id)
+    loadMySpaces(user.value.id)
   }
 })
 
@@ -156,7 +187,7 @@ const onSavePassword = async () => {
             <span class="card-title">我的宠物</span>
           </template>
 
-          <div v-if="pet" class="pet-block">
+          <div v-if="pets.length" class="pet-block">
             <div class="pet-head">
               <div class="avatar-ring">
                 <el-avatar :size="72" :src="pet.imageUrl || ''">
@@ -167,7 +198,7 @@ const onSavePassword = async () => {
                 <div class="pet-name-row">
                   <span class="name">{{ pet.name }}</span>
                   <el-tag effect="dark" round class="lv-tag">Lv.{{ pet.level }}</el-tag>
-                  <el-button class="rename-btn" size="small" round @click="openRename">改名</el-button>
+                  <el-button class="rename-btn" size="small" round @click="openRename(pet)">改名</el-button>
                 </div>
                 <div class="pet-breed">{{ pet.species }} · {{ pet.breed }}</div>
               </div>
@@ -181,7 +212,34 @@ const onSavePassword = async () => {
               <el-progress :percentage="petProgress" :stroke-width="10" :show-text="false" />
             </div>
 
-            <div class="pet-tips">每日签到、发布新笔记都可以为它获得经验升级</div>
+            <div class="pet-tips">每日签到为所有宠物增加经验，发布动态只为出场宠物增加经验</div>
+
+            <!-- 全部宠物：切换出场/改名 -->
+            <div class="pet-list">
+              <div v-for="p in pets" :key="p.id" class="pet-row" :class="{ active: p.active }">
+                <el-avatar :size="40" :src="p.imageUrl || ''">{{ (p.name || '宠')[0] }}</el-avatar>
+                <div class="pet-row-info">
+                  <div class="pet-row-name">
+                    {{ p.name }} <span class="pet-row-lv">Lv.{{ p.level }}</span>
+                  </div>
+                  <div class="pet-row-breed">{{ p.species }} · {{ p.breed }}</div>
+                </div>
+                <el-tag v-if="p.active" effect="dark" round size="small">出场中</el-tag>
+                <el-button
+                  v-else
+                  size="small"
+                  round
+                  :loading="switchingId === p.id"
+                  @click="onSetActive(p)"
+                >
+                  设为出场
+                </el-button>
+                <el-button size="small" round class="rename-btn" @click="openRename(p)">改名</el-button>
+              </div>
+              <el-button class="adopt-btn" size="small" round @click="router.push('/claim')">
+                领养新宠物
+              </el-button>
+            </div>
           </div>
 
           <div v-else class="pet-empty">
@@ -228,25 +286,34 @@ const onSavePassword = async () => {
         </el-form>
         </el-card>
 
-        <!-- 我的笔记 -->
-        <el-card v-loading="loadingNotes" shadow="never">
+        <!-- 我的动态 -->
+        <el-card v-loading="loadingSpaces" shadow="never">
           <template #header>
-            <div class="notes-header">
-              <span class="card-title">我的笔记</span>
-              <el-button size="small" round @click="router.push('/notes')">去笔记广场</el-button>
+            <div class="spaces-header">
+              <span class="card-title">我的动态</span>
+              <el-button size="small" round @click="router.push('/space')">去宠域空间</el-button>
             </div>
           </template>
-          <div v-if="myNotes.length" class="my-note-list">
-            <div v-for="note in myNotes" :key="note.id" class="my-note-item">
-              <div class="my-note-title-row">
-                <span class="my-note-title">{{ note.title }}</span>
-                <el-tag v-if="note.category" size="small" round>{{ note.category }}</el-tag>
+          <div v-if="mySpaces.length" class="my-space-list">
+            <div v-for="item in mySpaces" :key="item.id" class="my-space-item">
+              <div class="my-space-title-row">
+                <span class="my-space-title">{{ item.title || '无标题动态' }}</span>
+                <el-tag v-if="item.category" size="small" round>{{ item.category }}</el-tag>
               </div>
-              <div class="my-note-content">{{ note.content }}</div>
-              <div class="my-note-time">{{ formatTime(note.createTime) }}</div>
+              <div class="my-space-content">{{ item.content }}</div>
+              <div v-if="item.mediaList && item.mediaList.length" class="my-space-media">
+                <template v-for="(media, idx) in item.mediaList.slice(0, 3)" :key="idx">
+                  <img v-if="media.mediaType === 0" :src="media.url" alt="" />
+                  <video v-else :src="media.url" preload="metadata" />
+                </template>
+                <span v-if="item.mediaList.length > 3" class="my-space-media-more">
+                  +{{ item.mediaList.length - 3 }}
+                </span>
+              </div>
+              <div class="my-space-time">{{ formatTime(item.createTime) }}</div>
             </div>
           </div>
-          <p v-else class="my-notes-empty">还没有发布过笔记，去笔记广场写第一篇吧</p>
+          <p v-else class="my-spaces-empty">还没有发布过动态，去宠域空间发第一条吧</p>
         </el-card>
       </div>
 
@@ -458,30 +525,73 @@ const onSavePassword = async () => {
   padding: 16px 0;
   color: var(--pv-text-secondary);
 }
+/* 全部宠物列表 */
+.pet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pet-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--pv-border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: #fff;
+}
+.pet-row.active {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--pv-ink);
+}
+.pet-row-info {
+  flex: 1;
+  min-width: 0;
+}
+.pet-row-name {
+  font-weight: 600;
+  color: var(--pv-text);
+}
+.pet-row-lv {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  font-weight: 500;
+}
+.pet-row-breed {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  margin-top: 2px;
+}
+.adopt-btn {
+  align-self: flex-start;
+  font-weight: 600;
+  color: var(--pv-text-secondary);
+  border-color: var(--pv-border);
+}
 
-/* 我的笔记 */
-.notes-header {
+/* 我的动态 */
+.spaces-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.my-note-list {
+.my-space-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.my-note-item {
+.my-space-item {
   border: 1px solid var(--pv-border);
   border-radius: 12px;
   padding: 14px 16px;
   background: #fff;
 }
-.my-note-title-row {
+.my-space-title-row {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.my-note-title {
+.my-space-title {
   font-weight: 600;
   color: var(--pv-text);
   flex: 1;
@@ -490,7 +600,7 @@ const onSavePassword = async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.my-note-content {
+.my-space-content {
   margin-top: 8px;
   font-size: 13px;
   color: var(--pv-text-secondary);
@@ -502,13 +612,31 @@ const onSavePassword = async () => {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.my-note-time {
+.my-space-time {
   margin-top: 8px;
   font-size: 12px;
   color: var(--pv-text-secondary);
   text-align: right;
 }
-.my-notes-empty {
+.my-space-media {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.my-space-media img,
+.my-space-media video {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--pv-border);
+}
+.my-space-media-more {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+}
+.my-spaces-empty {
   color: var(--pv-text-secondary);
   text-align: center;
   padding: 18px 0;

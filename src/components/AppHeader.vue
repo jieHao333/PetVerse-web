@@ -44,7 +44,7 @@ const onLogout = () => {
         class="nav-menu"
       >
         <el-menu-item index="/">我的宠物</el-menu-item>
-        <el-menu-item index="/notes">笔记</el-menu-item>
+        <el-menu-item index="/space">宠域空间</el-menu-item>
         <el-menu-item index="/friends">好友</el-menu-item>
         <el-menu-item index="/profile">个人资料</el-menu-item>
       </el-menu>
