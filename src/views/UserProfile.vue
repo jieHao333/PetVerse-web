@@ -135,7 +135,7 @@ onUnmounted(() => {
             </div>
             <div>
               <div class="up-name">{{ displayName }}</div>
-              <div class="up-account">账号：{{ user.username }}</div>
+              <div class="up-account">账号: {{ user.username }}</div>
               <div class="up-meta">注册于 {{ formatTime(user.createTime) }}</div>
             </div>
           </div>

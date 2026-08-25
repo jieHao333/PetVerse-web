@@ -1,9 +1,10 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { CircleClose, Plus, Search } from '@element-plus/icons-vue'
+import { CircleClose, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { deleteSpace, getSpacePage, saveSpace, updateSpace, uploadSpaceMedia } from '@/api/space'
+import { LIKE_TARGET_SPACE, likeTarget, unlikeTarget } from '@/api/remark'
 
 const router = useRouter()
 
@@ -13,6 +14,8 @@ const pageNum = ref(1)
 const pageSize = ref(10)
 const keyword = ref('')
 const category = ref('')
+// 排序方式：latest-最新 / hot-最热(按点赞数热度)
+const sort = ref('latest')
 // 发布时间范围：[开始日期, 结束日期]，格式 YYYY-MM-DD，起止均含当天
 const dateRange = ref(null)
 const loading = ref(false)
@@ -20,9 +23,6 @@ const loading = ref(false)
 // 当前登录用户ID，仅本人动态展示编辑/删除入口
 const myId = String(JSON.parse(localStorage.getItem('user') || 'null')?.id || '')
 const isMySpace = (item) => String(item.userId) === myId
-
-// 可见性文案：0-公开 1-仅好友 2-仅自己，后端已按当前身份过滤
-const visibilityLabel = { 0: '公开', 1: '仅好友', 2: '仅自己' }
 
 // 媒体规格（与后端保持一致）：图片≤5MB，视频(mp4)≤50MB，单条最多9个
 const MAX_MEDIA_COUNT = 9
@@ -34,7 +34,9 @@ const dialogVisible = ref(false)
 const saving = ref(false)
 const isEdit = ref(false)
 const form = ref({ id: null, title: '', content: '', category: '', visibility: 0, mediaList: [] })
-const uploading = ref(false)
+// 进行中的上传数量（支持多文件并发上传），计数归零才允许发布
+const uploadingCount = ref(0)
+const uploading = computed(() => uploadingCount.value > 0)
 
 const loadSpaces = async () => {
   loading.value = true
@@ -44,6 +46,7 @@ const loadSpaces = async () => {
       pageSize: pageSize.value,
       title: keyword.value || undefined,
       category: category.value || undefined,
+      sort: sort.value,
       // 选中的日期换算为当天零点与当天末尾，确保起止日期当天的动态都能命中
       startTime: dateRange.value?.[0] ? `${dateRange.value[0]} 00:00:00` : undefined,
       endTime: dateRange.value?.[1] ? `${dateRange.value[1]} 23:59:59` : undefined,
@@ -63,6 +66,37 @@ onMounted(loadSpaces)
 const onSearch = () => {
   pageNum.value = 1
   loadSpaces()
+}
+
+// 切换排序后回到第一页重新加载
+const onSortChange = () => {
+  pageNum.value = 1
+  loadSpaces()
+}
+
+// 点赞/取消点赞：乐观更新计数与状态，失败时回滚
+const likingIds = ref(new Set())
+const onToggleLike = async (item) => {
+  if (likingIds.value.has(item.id)) return
+  likingIds.value.add(item.id)
+  const liked = !!item.liked
+  const count = Number(item.likeCount || 0)
+  // 先乐观更新界面，请求失败再回滚
+  item.liked = !liked
+  item.likeCount = liked ? Math.max(count - 1, 0) : count + 1
+  try {
+    if (liked) {
+      await unlikeTarget(LIKE_TARGET_SPACE, item.id)
+    } else {
+      await likeTarget(LIKE_TARGET_SPACE, item.id)
+    }
+  } catch (e) {
+    item.liked = liked
+    item.likeCount = count
+    ElMessage.error(e.message)
+  } finally {
+    likingIds.value.delete(item.id)
+  }
 }
 
 // 切换每页条数后回到第一页重新加载
@@ -113,16 +147,25 @@ const beforeUpload = (file) => {
   return true
 }
 
-// 自定义上传：逐文件调用媒体上传接口，成功后加入媒体列表
+// 自定义上传：先用本地 blob 即时回显，上传成功后替换为 OSS 地址，失败则移除该预览
 const handleUpload = async ({ file }) => {
-  uploading.value = true
+  const localUrl = URL.createObjectURL(file)
+  const isImage = IMAGE_TYPES.includes(file.type)
+  form.value.mediaList.push({ mediaType: isImage ? 0 : 1, url: localUrl })
+  const index = form.value.mediaList.length - 1
+  uploadingCount.value += 1
   try {
     const res = await uploadSpaceMedia(file)
-    form.value.mediaList.push({ mediaType: res.mediaType, url: res.url })
+    if (index < form.value.mediaList.length && form.value.mediaList[index]?.url === localUrl) {
+      form.value.mediaList[index] = { mediaType: res.mediaType, url: res.url }
+    }
   } catch (e) {
+    const pos = form.value.mediaList.findIndex((m) => m.url === localUrl)
+    if (pos > -1) form.value.mediaList.splice(pos, 1)
     ElMessage.error(e.message)
   } finally {
-    uploading.value = false
+    URL.revokeObjectURL(localUrl)
+    uploadingCount.value -= 1
   }
 }
 
@@ -251,6 +294,10 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
           @change="onSearch"
         />
         <el-button @click="onSearch">搜索</el-button>
+        <el-radio-group v-model="sort" class="sort-toggle" @change="onSortChange">
+          <el-radio-button value="latest">最新</el-radio-button>
+          <el-radio-button value="hot">最热</el-radio-button>
+        </el-radio-group>
       </div>
 
       <!-- 动态流 -->
@@ -266,7 +313,6 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
               </span>
               <div class="feed-sub">
                 <span class="feed-time">{{ formatTime(item.createTime) }}</span>
-                <el-tag size="small" effect="plain" round>{{ visibilityLabel[item.visibility] || '公开' }}</el-tag>
                 <el-tag v-if="item.category" size="small" type="info" effect="plain" round>
                   {{ item.category }}
                 </el-tag>
@@ -300,6 +346,17 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
                 class="media-item media-video"
               />
             </template>
+          </div>
+
+          <div class="feed-footer">
+            <el-button
+              link
+              :class="['like-btn', { liked: item.liked }]"
+              :icon="item.liked ? StarFilled : Star"
+              @click="onToggleLike(item)"
+            >
+              {{ Number(item.likeCount || 0) > 0 ? Number(item.likeCount) : (item.liked ? '1' : '点赞') }}
+            </el-button>
           </div>
         </div>
 
@@ -439,6 +496,31 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
 }
 .toolbar :deep(.el-range-input) {
   font-size: 13px;
+}
+.sort-toggle {
+  margin-left: auto;
+}
+
+/* 点赞行 */
+.feed-footer {
+  display: flex;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pv-border);
+}
+.like-btn {
+  color: var(--pv-text-secondary);
+  font-size: 13px;
+}
+.like-btn:hover {
+  color: var(--pv-ink);
+}
+.like-btn.liked {
+  color: var(--el-color-warning);
+}
+.like-btn.liked:hover {
+  color: var(--el-color-warning);
 }
 
 /* 动态流 */

@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import { getMe, updateUser, uploadAvatar } from '@/api/user'
 import { listMyPets, renamePet, setActivePet } from '@/api/pet'
-import { getSpacePage } from '@/api/space'
 
 const router = useRouter()
 
@@ -98,24 +97,6 @@ const petProgress = computed(() => {
   return Math.min(100, Math.round((pet.value.exp / pet.value.nextLevelExp) * 100))
 })
 
-// 我的动态（仅当前用户，与宠域空间广场区分）
-const mySpaces = ref([])
-const loadingSpaces = ref(false)
-
-const formatTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
-
-const loadMySpaces = async (userId) => {
-  loadingSpaces.value = true
-  try {
-    const page = await getSpacePage({ userId, pageNum: 1, pageSize: 20 })
-    mySpaces.value = page?.records || []
-  } catch {
-    mySpaces.value = []
-  } finally {
-    loadingSpaces.value = false
-  }
-}
-
 onMounted(async () => {
   try {
     user.value = await getMe()
@@ -130,10 +111,6 @@ onMounted(async () => {
   } catch {
     pets.value = []
     pet.value = null
-  }
-  // 加载我的动态，失败不阻断页面
-  if (user.value?.id) {
-    loadMySpaces(user.value.id)
   }
 })
 
@@ -270,7 +247,7 @@ const onSavePassword = async () => {
           </el-upload>
           <div>
             <div class="name">{{ profileForm.nickname || user?.nickname || '未设置' }}</div>
-            <div class="username">@{{ user?.username }}</div>
+            <div class="username">账号: {{ user?.username }}</div>
           </div>
         </div>
 
@@ -284,36 +261,6 @@ const onSavePassword = async () => {
             </el-button>
           </el-form-item>
         </el-form>
-        </el-card>
-
-        <!-- 我的动态 -->
-        <el-card v-loading="loadingSpaces" shadow="never">
-          <template #header>
-            <div class="spaces-header">
-              <span class="card-title">我的动态</span>
-              <el-button size="small" round @click="router.push('/space')">去宠域空间</el-button>
-            </div>
-          </template>
-          <div v-if="mySpaces.length" class="my-space-list">
-            <div v-for="item in mySpaces" :key="item.id" class="my-space-item">
-              <div class="my-space-title-row">
-                <span class="my-space-title">{{ item.title || '无标题动态' }}</span>
-                <el-tag v-if="item.category" size="small" round>{{ item.category }}</el-tag>
-              </div>
-              <div class="my-space-content">{{ item.content }}</div>
-              <div v-if="item.mediaList && item.mediaList.length" class="my-space-media">
-                <template v-for="(media, idx) in item.mediaList.slice(0, 3)" :key="idx">
-                  <img v-if="media.mediaType === 0" :src="media.url" alt="" />
-                  <video v-else :src="media.url" preload="metadata" />
-                </template>
-                <span v-if="item.mediaList.length > 3" class="my-space-media-more">
-                  +{{ item.mediaList.length - 3 }}
-                </span>
-              </div>
-              <div class="my-space-time">{{ formatTime(item.createTime) }}</div>
-            </div>
-          </div>
-          <p v-else class="my-spaces-empty">还没有发布过动态，去宠域空间发第一条吧</p>
         </el-card>
       </div>
 
@@ -567,78 +514,5 @@ const onSavePassword = async () => {
   font-weight: 600;
   color: var(--pv-text-secondary);
   border-color: var(--pv-border);
-}
-
-/* 我的动态 */
-.spaces-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.my-space-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.my-space-item {
-  border: 1px solid var(--pv-border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  background: #fff;
-}
-.my-space-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.my-space-title {
-  font-weight: 600;
-  color: var(--pv-text);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.my-space-content {
-  margin-top: 8px;
-  font-size: 13px;
-  color: var(--pv-text-secondary);
-  line-height: 1.7;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.my-space-time {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--pv-text-secondary);
-  text-align: right;
-}
-.my-space-media {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-}
-.my-space-media img,
-.my-space-media video {
-  width: 56px;
-  height: 56px;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid var(--pv-border);
-}
-.my-space-media-more {
-  font-size: 12px;
-  color: var(--pv-text-secondary);
-}
-.my-spaces-empty {
-  color: var(--pv-text-secondary);
-  text-align: center;
-  padding: 18px 0;
 }
 </style>

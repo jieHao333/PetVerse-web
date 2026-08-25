@@ -18,8 +18,18 @@ export const getFriends = () => request.get('/social/friend/list')
 /** 删除好友 */
 export const removeFriend = (friendUserId) => request.delete(`/social/friend/${friendUserId}`)
 
-/** 发送聊天消息 */
+/** 发送聊天消息（文本/图片/文件，文件消息传 msgType 与 fileName） */
 export const sendMessage = (data) => request.post('/social/chat/message', data)
+
+/** 上传聊天文件（图片/文档/压缩包等≤20MB），返回 { url, msgType, fileName }；大文件上传单独放宽超时 */
+export const uploadChatFile = (file) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post('/social/chat/file', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000,
+  })
+}
 
 /** 查询与某好友的最近聊天记录 */
 export const getMessages = (friendUserId) => request.get('/social/chat/messages', { params: { friendUserId } })

@@ -22,6 +22,11 @@ const onLogout = () => {
   localStorage.removeItem('user')
   router.push({ name: 'login' })
 }
+
+// 新标签页打开「我的动态」独立页面（仅展示本人动态，不含账号/宠物信息）
+const openMySpaces = () => {
+  window.open(router.resolve('/my-spaces').href, '_blank')
+}
 </script>
 
 <template>
@@ -61,6 +66,7 @@ const onLogout = () => {
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item @click="router.push('/profile')">个人资料</el-dropdown-item>
+              <el-dropdown-item @click="openMySpaces">我的动态</el-dropdown-item>
               <el-dropdown-item divided @click="onLogout">退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>

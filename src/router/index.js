@@ -34,6 +34,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/my-spaces',
+      name: 'mySpaces',
+      component: () => import('@/views/MySpaces.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/user/:id',
       name: 'userProfile',
       component: () => import('@/views/UserProfile.vue'),
