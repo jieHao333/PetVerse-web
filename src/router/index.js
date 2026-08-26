@@ -40,6 +40,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/pet-chat',
+      name: 'petChat',
+      component: () => import('@/views/PetChat.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/user/:id',
       name: 'userProfile',
       component: () => import('@/views/UserProfile.vue'),
