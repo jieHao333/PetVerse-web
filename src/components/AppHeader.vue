@@ -17,6 +17,9 @@ defineProps({
 
 const user = computed(() => JSON.parse(localStorage.getItem('user') || 'null'))
 
+// 当前用户角色：USER/MERCHANT/ADMIN，存量用户无 role 时默认 USER
+const role = computed(() => user.value?.role || 'USER')
+
 const onLogout = () => {
   localStorage.removeItem('token')
   localStorage.removeItem('user')
@@ -52,6 +55,7 @@ const openMySpaces = () => {
         <el-menu-item index="/space">宠域空间</el-menu-item>
         <el-menu-item index="/friends">好友</el-menu-item>
         <el-menu-item index="/pet-chat">AI 伙伴</el-menu-item>
+        <el-menu-item index="/shop">宠物商城</el-menu-item>
         <el-menu-item index="/profile">个人资料</el-menu-item>
       </el-menu>
 
@@ -68,6 +72,17 @@ const openMySpaces = () => {
             <el-dropdown-menu>
               <el-dropdown-item @click="router.push('/profile')">个人资料</el-dropdown-item>
               <el-dropdown-item @click="openMySpaces">我的动态</el-dropdown-item>
+              <el-dropdown-item @click="router.push('/shop/cart')">购物车</el-dropdown-item>
+              <el-dropdown-item @click="router.push('/shop/orders')">我的订单</el-dropdown-item>
+              <el-dropdown-item v-if="role === 'USER'" @click="router.push('/merchant-apply')">
+                商家入驻
+              </el-dropdown-item>
+              <el-dropdown-item v-if="role === 'MERCHANT' || role === 'ADMIN'" @click="router.push('/merchant-center')">
+                商家中心
+              </el-dropdown-item>
+              <el-dropdown-item v-if="role === 'ADMIN'" @click="router.push('/admin/merchant-audit')">
+                入驻审批
+              </el-dropdown-item>
               <el-dropdown-item divided @click="onLogout">退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>

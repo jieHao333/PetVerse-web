@@ -52,6 +52,48 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/shop',
+      name: 'shop',
+      component: () => import('@/views/Shop.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/shop/store/:id',
+      name: 'shopStore',
+      component: () => import('@/views/ShopStore.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/shop/cart',
+      name: 'shopCart',
+      component: () => import('@/views/Cart.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/shop/orders',
+      name: 'shopOrders',
+      component: () => import('@/views/MyOrders.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/merchant-apply',
+      name: 'merchantApply',
+      component: () => import('@/views/MerchantApply.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/merchant-center',
+      name: 'merchantCenter',
+      component: () => import('@/views/MerchantCenter.vue'),
+      meta: { requiresAuth: true, roles: ['MERCHANT', 'ADMIN'] },
+    },
+    {
+      path: '/admin/merchant-audit',
+      name: 'adminMerchantAudit',
+      component: () => import('@/views/AdminMerchantAudit.vue'),
+      meta: { requiresAuth: true, roles: ['ADMIN'] },
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('@/views/Login.vue'),
@@ -64,7 +106,7 @@ const router = createRouter({
   ],
 })
 
-// 全局路由守卫：未登录跳转登录页
+// 全局路由守卫：未登录跳转登录页，角色不足回首页（后端网关也会校验，此处仅优化体验）
 router.beforeEach((to) => {
   const token = localStorage.getItem('token')
   if (to.meta.requiresAuth && !token) {
@@ -72,6 +114,12 @@ router.beforeEach((to) => {
   }
   if ((to.name === 'login' || to.name === 'register') && token) {
     return { name: 'home' }
+  }
+  if (to.meta.roles) {
+    const user = JSON.parse(localStorage.getItem('user') || 'null')
+    if (!to.meta.roles.includes(user?.role || 'USER')) {
+      return { name: 'home' }
+    }
   }
   return true
 })

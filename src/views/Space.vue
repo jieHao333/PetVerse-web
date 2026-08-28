@@ -44,7 +44,7 @@ const loadSpaces = async () => {
     const data = await getSpacePage({
       pageNum: pageNum.value,
       pageSize: pageSize.value,
-      title: keyword.value || undefined,
+      keyword: keyword.value || undefined,
       category: category.value || undefined,
       sort: sort.value,
       // 选中的日期换算为当天零点与当天末尾，确保起止日期当天的动态都能命中
@@ -268,7 +268,7 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
       <div class="toolbar pv-panel">
         <el-input
           v-model.trim="keyword"
-          placeholder="按标题搜索"
+          placeholder="搜索标题或正文"
           clearable
           :prefix-icon="Search"
           class="toolbar-input"

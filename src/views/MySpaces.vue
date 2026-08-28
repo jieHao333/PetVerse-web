@@ -27,7 +27,7 @@ const loadMoreSpaces = async () => {
       userId: me?.id,
       pageNum: pageNum.value,
       pageSize: SPACE_PAGE_SIZE,
-      title: keyword.value || undefined,
+      keyword: keyword.value || undefined,
       // 选中的日期换算为当天零点与当天末尾，确保起止日期当天的动态都能命中
       startTime: dateRange.value?.[0] ? `${dateRange.value[0]} 00:00:00` : undefined,
       endTime: dateRange.value?.[1] ? `${dateRange.value[1]} 23:59:59` : undefined,
@@ -101,7 +101,7 @@ onUnmounted(() => {
       <div class="toolbar pv-panel">
         <el-input
           v-model.trim="keyword"
-          placeholder="按标题搜索我的动态"
+          placeholder="搜索我的动态标题或正文"
           clearable
           :prefix-icon="Search"
           class="toolbar-input"
