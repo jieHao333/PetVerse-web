@@ -1,15 +1,10 @@
 import request from './request'
 
-function getUserId() {
-  const user = JSON.parse(localStorage.getItem('user') || 'null')
-  return user?.id
-}
-
 /** 分页查询宠域空间动态 */
 export const getSpacePage = (params) => request.get('/space/page', { params })
 
-/** 发布动态 */
-export const saveSpace = (data) => request.post('/space', { ...data, userId: getUserId() })
+/** 发布动态（作者身份由后端从登录令牌解析，无需传入用户ID） */
+export const saveSpace = (data) => request.post('/space', data)
 
 /** 修改动态 */
 export const updateSpace = (data) => request.put('/space', data)

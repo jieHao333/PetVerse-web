@@ -30,11 +30,6 @@ const checkName = () => {
   return name
 }
 
-const getUserId = () => {
-  const user = JSON.parse(localStorage.getItem('user') || 'null')
-  return user?.id
-}
-
 const rarityType = (code) => ({ 1: 'info', 2: 'primary', 3: 'warning' })[code] || 'info'
 
 onMounted(async () => {
@@ -63,7 +58,7 @@ const onClaimRandom = async () => {
   if (!name) return
   claiming.value = true
   try {
-    await claimPet({ userId: getUserId(), method: 'RANDOM', name })
+    await claimPet({ method: 'RANDOM', name })
     ElMessage.success(`恭喜，${name} 成为你的伙伴！`)
     previewDialog.value = false
     router.push({ name: 'home' })
@@ -84,7 +79,7 @@ const onClaimChoose = async () => {
   if (!name) return
   claiming.value = true
   try {
-    await claimPet({ userId: getUserId(), method: 'CHOOSE', catalogId: selectedId.value, name })
+    await claimPet({ method: 'CHOOSE', catalogId: selectedId.value, name })
     ElMessage.success(`领养成功，${name} 正在等你！`)
     router.push({ name: 'home' })
   } catch (e) {
