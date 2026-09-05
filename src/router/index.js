@@ -16,6 +16,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/pet/profile/:id',
+      name: 'petProfileEdit',
+      component: () => import('@/views/PetProfileEdit.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/space',
       name: 'space',
       component: () => import('@/views/Space.vue'),

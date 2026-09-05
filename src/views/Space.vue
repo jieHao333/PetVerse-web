@@ -197,15 +197,11 @@ const onSave = async () => {
     } else {
       res = await saveSpace(payload)
     }
-    ElMessage.success('发布成功')
-    // 发布新动态会奖励宠物经验，升级时额外提示（仅新建时有奖励）
-    const petExp = res?.petExp
-    if (!isEdit.value && petExp) {
-      if (petExp.leveledUp) {
-        ElMessage.success(`宠物获得 +${petExp.gainedExp} 经验，升级到 Lv.${petExp.level}`)
-      } else {
-        ElMessage.success(`宠物获得 +${petExp.gainedExp} 经验`)
-      }
+    // 宠物经验奖励已改为消息队列异步发放，不再同步返回经验结果（仅新建时有奖励）
+    if (isEdit.value) {
+      ElMessage.success('修改成功')
+    } else {
+      ElMessage.success('发布成功，宠物经验奖励已异步发放')
     }
     dialogVisible.value = false
     loadSpaces()

@@ -1,15 +1,14 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import { getMe, updateUser, uploadAvatar } from '@/api/user'
-import { listMyPets, renamePet, setActivePet } from '@/api/pet'
+import { listMyPets, renamePet } from '@/api/pet'
 
 const router = useRouter()
 
 const user = ref(null)
-const pet = ref(null)
-// 用户名下全部宠物，一用户可多宠，仅一只出场
+// 用户名下全部宠物，分真实宠物（纯档案）与虚拟宠物（等级/经验/签到）两类
 const pets = ref([])
 const profileForm = reactive({ nickname: '', avatar: '' })
 const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
@@ -40,8 +39,6 @@ const renameDialog = ref(false)
 const renameTarget = ref(null)
 const newName = ref('')
 const renaming = ref(false)
-// 正在切换出场的宠物ID，防止并发点击
-const switchingId = ref(null)
 
 const openRename = (target) => {
   renameTarget.value = target
@@ -60,7 +57,6 @@ const onRename = async () => {
     const updated = await renamePet(renameTarget.value.id, name)
     const idx = pets.value.findIndex((p) => p.id === updated.id)
     if (idx > -1) pets.value[idx] = updated
-    if (pet.value?.id === updated.id) pet.value = updated
     renameDialog.value = false
     ElMessage.success(`宠物已改名为 ${name}`)
   } catch (e) {
@@ -70,32 +66,10 @@ const onRename = async () => {
   }
 }
 
-// 拉取全部宠物，出场宠物作为卡片主体展示；兼容存量数据无出场标记时取第一只
+// 拉取全部宠物，按类型在卡片中分真实/虚拟展示
 const loadPets = async () => {
   pets.value = await listMyPets()
-  pet.value = pets.value.find((p) => p.active) || pets.value[0] || null
 }
-
-// 切换出场宠物：发布动态等经验只发放给出场宠物
-const onSetActive = async (target) => {
-  if (target.active || switchingId.value) return
-  switchingId.value = target.id
-  try {
-    await setActivePet(target.id)
-    await loadPets()
-    ElMessage.success(`已切换 ${target.name} 出场`)
-  } catch (e) {
-    ElMessage.error(e.message)
-  } finally {
-    switchingId.value = null
-  }
-}
-
-// 宠物升级进度百分比，满级或无升级需求时为 100%
-const petProgress = computed(() => {
-  if (!pet.value || !pet.value.nextLevelExp) return 100
-  return Math.min(100, Math.round((pet.value.exp / pet.value.nextLevelExp) * 100))
-})
 
 onMounted(async () => {
   try {
@@ -110,7 +84,6 @@ onMounted(async () => {
     await loadPets()
   } catch {
     pets.value = []
-    pet.value = null
   }
 })
 
@@ -164,63 +137,41 @@ const onSavePassword = async () => {
             <span class="card-title">我的宠物</span>
           </template>
 
-          <div v-if="pets.length" class="pet-block">
-            <div class="pet-head">
-              <div class="avatar-ring">
-                <el-avatar :size="72" :src="pet.imageUrl || ''">
-                  {{ (pet.name || '宠')[0] }}
-                </el-avatar>
-              </div>
-              <div>
-                <div class="pet-name-row">
-                  <span class="name">{{ pet.name }}</span>
-                  <el-tag effect="dark" round class="lv-tag">Lv.{{ pet.level }}</el-tag>
-                  <el-button class="rename-btn" size="small" round @click="openRename(pet)">改名</el-button>
+          <div v-if="pets.length" class="pet-list">
+            <div v-for="p in pets" :key="p.id" class="pet-row">
+              <el-avatar :size="44" :src="p.imageUrl || ''">{{ (p.name || '宠')[0] }}</el-avatar>
+              <div class="pet-row-info">
+                <div class="pet-row-name">
+                  {{ p.name }}
+                  <el-tag v-if="p.type === 'REAL'" size="small" effect="plain" round>真实</el-tag>
+                  <span v-else class="pet-row-lv">Lv.{{ p.level }}</span>
                 </div>
-                <div class="pet-breed">{{ pet.species }} · {{ pet.breed }}</div>
-              </div>
-            </div>
-
-            <div class="pet-exp">
-              <div class="exp-label">
-                <span>升级进度</span>
-                <span>{{ pet.exp }} / {{ pet.nextLevelExp || '已满级' }}</span>
-              </div>
-              <el-progress :percentage="petProgress" :stroke-width="10" :show-text="false" />
-            </div>
-
-            <div class="pet-tips">每日签到为所有宠物增加经验，发布动态只为出场宠物增加经验</div>
-
-            <!-- 全部宠物：切换出场/改名 -->
-            <div class="pet-list">
-              <div v-for="p in pets" :key="p.id" class="pet-row" :class="{ active: p.active }">
-                <el-avatar :size="40" :src="p.imageUrl || ''">{{ (p.name || '宠')[0] }}</el-avatar>
-                <div class="pet-row-info">
-                  <div class="pet-row-name">
-                    {{ p.name }} <span class="pet-row-lv">Lv.{{ p.level }}</span>
-                  </div>
-                  <div class="pet-row-breed">{{ p.species }} · {{ p.breed }}</div>
+                <div class="pet-row-breed">
+                  <template v-if="p.type === 'REAL'">
+                    {{ p.species || '未填种类' }} · {{ p.genderName || '未填性别' }}
+                  </template>
+                  <template v-else>{{ p.species }} · {{ p.breed }}</template>
                 </div>
-                <el-tag v-if="p.active" effect="dark" round size="small">出场中</el-tag>
-                <el-button
-                  v-else
-                  size="small"
-                  round
-                  :loading="switchingId === p.id"
-                  @click="onSetActive(p)"
-                >
-                  设为出场
-                </el-button>
-                <el-button size="small" round class="rename-btn" @click="openRename(p)">改名</el-button>
               </div>
-              <el-button class="adopt-btn" size="small" round @click="router.push('/claim')">
-                领养新宠物
+              <el-button
+                v-if="p.type === 'REAL'"
+                size="small"
+                round
+                type="primary"
+                plain
+                @click="router.push(`/pet/profile/${p.id}`)"
+              >
+                完善信息
               </el-button>
+              <el-button size="small" round class="rename-btn" @click="openRename(p)">改名</el-button>
             </div>
+            <el-button class="adopt-btn" size="small" round @click="router.push('/claim')">
+              领养虚拟宠物
+            </el-button>
           </div>
 
           <div v-else class="pet-empty">
-            <p>你还没有宠物，领养一只作为你的社交形象吧</p>
+            <p>你还没有宠物，登记真实宠物或领养一只虚拟伙伴吧</p>
             <el-button type="primary" @click="router.push('/claim')">去领养宠物</el-button>
           </div>
         </el-card>
@@ -400,23 +351,7 @@ const onSavePassword = async () => {
 }
 
 /* 宠物信息卡片 */
-.pet-block {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-.pet-head {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.pet-name-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 .rename-btn {
-  margin-left: 2px;
   font-weight: 600;
   color: var(--pv-text-secondary);
   border-color: var(--pv-border);
@@ -427,43 +362,6 @@ const onSavePassword = async () => {
   border-color: var(--pv-ink);
   background: var(--pv-tint);
 }
-.pet-name-row .name {
-  font-size: 20px;
-}
-.lv-tag {
-  background: var(--pv-ink);
-  border: none;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-}
-.pet-breed {
-  color: var(--pv-text-secondary);
-  margin-top: 4px;
-  font-size: 13px;
-}
-.pet-exp {
-  background: var(--pv-tint);
-  border: 1px solid var(--pv-border);
-  border-radius: 12px;
-  padding: 12px 16px;
-}
-.exp-label {
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  color: var(--pv-text-secondary);
-  margin-bottom: 8px;
-}
-.pet-exp :deep(.el-progress-bar__outer) {
-  background-color: #e4e4e0;
-}
-.pet-exp :deep(.el-progress-bar__inner) {
-  background: var(--pv-ink);
-}
-.pet-tips {
-  font-size: 12px;
-  color: var(--pv-text-secondary);
-}
 .pet-empty {
   display: flex;
   flex-direction: column;
@@ -472,7 +370,7 @@ const onSavePassword = async () => {
   padding: 16px 0;
   color: var(--pv-text-secondary);
 }
-/* 全部宠物列表 */
+/* 宠物列表 */
 .pet-list {
   display: flex;
   flex-direction: column;
@@ -487,15 +385,14 @@ const onSavePassword = async () => {
   padding: 10px 14px;
   background: #fff;
 }
-.pet-row.active {
-  border-color: transparent;
-  box-shadow: 0 0 0 2px var(--pv-ink);
-}
 .pet-row-info {
   flex: 1;
   min-width: 0;
 }
 .pet-row-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 600;
   color: var(--pv-text);
 }

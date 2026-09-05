@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
@@ -43,7 +43,64 @@ const loadOrders = async () => {
   }
 }
 
-onMounted(loadOrders)
+onMounted(() => {
+  loadOrders()
+  // 秒级时钟驱动待支付订单倒计时，组件卸载时释放定时器
+  countdownTimer = setInterval(tick, 1000)
+})
+
+onUnmounted(() => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+})
+
+/* ==================== 支付倒计时 ==================== */
+
+// 当前时钟，每秒刷新一次驱动倒计时文本重算
+const now = ref(Date.now())
+let countdownTimer = null
+// 上次超时自动刷新时间戳，防止超时后未即时取消导致每秒重复请求列表（限 10 秒一次）
+let lastAutoRefresh = 0
+
+// 解析后端返回的支付截止时间（兼容 ISO 与空格分隔格式）
+const parseDeadline = (deadline) => new Date(String(deadline).replace(' ', 'T')).getTime()
+
+// 是否已支付超时：超时后隐藏支付/取消按钮，后端支付接口也会惰性取消并拒绝支付
+const isPayExpired = (order) => !!order.payDeadline && parseDeadline(order.payDeadline) <= now.value
+
+// 超时订单状态标签同步展示为已取消（与后端惰性取消结果一致），消除刷新返回前"待支付"标签的滞后窗口；
+// 列表刷新返回后 order.status 本身即为 3，两处逻辑收敛为同一结果
+const displayStatus = (order) => (order.status === 0 && isPayExpired(order) ? 3 : order.status)
+const displayStatusName = (order) => (order.status === 0 && isPayExpired(order) ? '已取消' : order.statusName)
+
+// 待支付订单剩余支付时间文本，超时后提示即将自动取消（后端延迟消息有秒级延迟属正常）
+const countdownText = (order) => {
+  if (!order.payDeadline) {
+    return ''
+  }
+  if (isPayExpired(order)) {
+    return '已超时，即将自动取消'
+  }
+  const diff = parseDeadline(order.payDeadline) - now.value
+  const totalSec = Math.floor(diff / 1000)
+  const pad = (n) => String(n).padStart(2, '0')
+  if (totalSec >= 3600) {
+    return `${Math.floor(totalSec / 3600)}:${pad(Math.floor((totalSec % 3600) / 60))}:${pad(totalSec % 60)}`
+  }
+  return `${pad(Math.floor(totalSec / 60))}:${pad(totalSec % 60)}`
+}
+
+const tick = () => {
+  now.value = Date.now()
+  // 存在已超时的待支付订单时刷新列表，同步后端自动取消后的最新状态（节流 10 秒）
+  const hasExpired = orders.value.some((o) => o.status === 0 && isPayExpired(o))
+  if (hasExpired && now.value - lastAutoRefresh > 10000) {
+    lastAutoRefresh = now.value
+    loadOrders()
+  }
+}
 
 const onTabChange = () => {
   pageNum.value = 1
@@ -122,8 +179,8 @@ const showPickupCode = (order) => {
             <div class="order-head">
               <span class="order-no">订单号：{{ order.orderNo }}</span>
               <span class="order-time">{{ order.createTime }}</span>
-              <el-tag :type="statusTagType(order.status)" size="small" effect="plain">
-                {{ order.statusName }}
+              <el-tag :type="statusTagType(displayStatus(order))" size="small" effect="plain">
+                {{ displayStatusName(order) }}
               </el-tag>
             </div>
 
@@ -155,10 +212,15 @@ const showPickupCode = (order) => {
                   合计：<em>¥{{ order.totalAmount }}</em>
                 </span>
                 <template v-if="order.status === 0">
-                  <el-button :loading="payingId === order.id" type="primary" size="small" @click="onPay(order)">
-                    立即支付
-                  </el-button>
-                  <el-button size="small" @click="onCancel(order)">取消订单</el-button>
+                  <!-- 已超时：隐藏支付与取消入口，后端已惰性取消，等待列表刷新同步状态 -->
+                  <span v-if="isPayExpired(order)" class="pay-countdown">支付已超时，订单已自动取消</span>
+                  <template v-else>
+                    <span class="pay-countdown">⏳ 剩余支付时间 {{ countdownText(order) }}</span>
+                    <el-button :loading="payingId === order.id" type="primary" size="small" @click="onPay(order)">
+                      立即支付
+                    </el-button>
+                    <el-button size="small" @click="onCancel(order)">取消订单</el-button>
+                  </template>
                 </template>
                 <el-button
                   v-if="order.status === 1"
@@ -350,6 +412,11 @@ const showPickupCode = (order) => {
   color: #d4380d;
   font-size: 17px;
   font-weight: 700;
+}
+.pay-countdown {
+  font-size: 12px;
+  font-weight: 600;
+  color: #d4380d;
 }
 
 .pager {
