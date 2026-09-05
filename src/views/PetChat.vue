@@ -20,7 +20,7 @@ const formatMsgTime = (ts) => {
 }
 
 // ---------- 页面状态 ----------
-const pet = ref(null) // 当前出场宠物
+const pet = ref(null) // 当前代表宠物（优先虚拟宠物，无则真实宠物）
 const loadingPet = ref(true) // 宠物信息加载中
 const loadingHistory = ref(false) // 历史对话加载中
 // 会话消息列表：[{ role: 'user' | 'assistant', content, ts, thinking, stopped, error }]
@@ -230,9 +230,15 @@ const onClear = async () => {
           <div class="pet-brief">
             <div class="name-row">
               <span class="pet-name">{{ pet.name }}</span>
-              <el-tag effect="dark" round class="lv-tag">Lv.{{ pet.level }}</el-tag>
+              <!-- 真实宠物为纯档案，不展示等级 -->
+              <el-tag v-if="pet.type !== 'REAL'" effect="dark" round class="lv-tag">
+                Lv.{{ pet.level }}
+              </el-tag>
             </div>
-            <p class="pet-sub">{{ pet.species }} · {{ pet.breed }} · {{ pet.age }} 岁</p>
+            <p v-if="pet.type === 'REAL'" class="pet-sub">
+              {{ pet.species || '未填种类' }} · {{ pet.genderName || '未填性别' }}
+            </p>
+            <p v-else class="pet-sub">{{ pet.species }} · {{ pet.breed }} · {{ pet.age }} 岁</p>
           </div>
           <el-button size="small" round class="clear-btn" @click="onClear">清空对话</el-button>
         </div>

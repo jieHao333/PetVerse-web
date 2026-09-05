@@ -156,12 +156,39 @@ onUnmounted(() => {
               <div>
                 <div class="pet-name-row">
                   <span class="pet-name">{{ pet.name }}</span>
-                  <el-tag effect="dark" round class="lv-tag">Lv.{{ pet.level }}</el-tag>
+                  <!-- 真实宠物展示档案标签，虚拟宠物展示等级标签 -->
+                  <el-tag v-if="pet.type === 'REAL'" effect="plain" round class="real-tag">
+                    真实宠物
+                  </el-tag>
+                  <el-tag v-else effect="dark" round class="lv-tag">Lv.{{ pet.level }}</el-tag>
                 </div>
-                <div class="pet-breed">{{ pet.species }} · {{ pet.breed }}</div>
+                <div class="pet-breed">
+                  <template v-if="pet.type === 'REAL'">
+                    {{ pet.species || '未填种类' }} · {{ pet.genderName || '未填性别' }}
+                  </template>
+                  <template v-else>{{ pet.species }} · {{ pet.breed }}</template>
+                </div>
               </div>
             </div>
-            <div class="pet-exp">
+
+            <!-- 真实宠物：展示档案信息（生日/绝育/收养时间），不含等级经验 -->
+            <div v-if="pet.type === 'REAL'" class="pet-profile">
+              <div class="pf-item">
+                <span class="pf-label">生日</span>
+                <span class="pf-value">{{ pet.birthday || '未填写' }}</span>
+              </div>
+              <div class="pf-item">
+                <span class="pf-label">是否绝育</span>
+                <span class="pf-value">{{ pet.sterilized ? '已绝育' : '未绝育' }}</span>
+              </div>
+              <div class="pf-item">
+                <span class="pf-label">收养时间</span>
+                <span class="pf-value">{{ pet.adoptionDate || '未填写' }}</span>
+              </div>
+            </div>
+
+            <!-- 虚拟宠物：展示升级进度 -->
+            <div v-else class="pet-exp">
               <div class="exp-label">
                 <span>升级进度</span>
                 <span>{{ pet.exp }} / {{ pet.nextLevelExp || '已满级' }}</span>
@@ -347,6 +374,35 @@ onUnmounted(() => {
 }
 .pet-exp :deep(.el-progress-bar__inner) {
   background: var(--pv-ink);
+}
+
+/* 真实宠物档案标签与信息 */
+.real-tag {
+  color: var(--pv-ink);
+  border-color: var(--pv-border);
+  background: var(--pv-tint);
+  font-weight: 600;
+}
+.pet-profile {
+  background: var(--pv-tint);
+  border: 1px solid var(--pv-border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pf-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.pf-label {
+  color: var(--pv-text-secondary);
+}
+.pf-value {
+  color: var(--pv-text);
+  font-weight: 500;
 }
 
 /* 动态列表 */
