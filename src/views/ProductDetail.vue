@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ShoppingCart } from '@element-plus/icons-vue'
-import { addCartItem, buyNowOrder, getProductDetail, getReviewSummary, pageProductReviews, payOrder } from '@/api/shop'
+import { addCartItem, buyNowOrder, deleteReviewReply, getProductDetail, getReviewSummary, pageProductReviews, pageReviewReplies, payOrder, saveReviewReply } from '@/api/shop'
 
 const route = useRoute()
 const router = useRouter()
@@ -157,6 +157,131 @@ const onReviewSizeChange = () => {
 }
 
 const formatTime = (time) => (time ? String(time).replace('T', ' ').slice(0, 16) : '')
+
+/* ==================== 评价回复互动（所有登录用户可质询/回复，无需购买过该商品） ==================== */
+
+// 当前登录用户ID（Long 已序列化为字符串，统一转字符串比较），用于判断本人回复可删除
+const myId = String(JSON.parse(localStorage.getItem('user') || 'null')?.id || '')
+
+const isMine = (userId) => String(userId) === myId
+
+// 每条评价独立的回复区状态：展开/列表/分页/输入框/回复对象
+const replyStateMap = ref({})
+
+const replyOf = (reviewId) => {
+  if (!replyStateMap.value[reviewId]) {
+    replyStateMap.value[reviewId] = {
+      open: false,
+      list: [],
+      total: 0,
+      pageNum: 1,
+      pageSize: 10,
+      loading: false,
+      loaded: false,
+      input: '',
+      target: null,
+      submitting: false,
+    }
+  }
+  return replyStateMap.value[reviewId]
+}
+
+const toggleReplies = (item) => {
+  const state = replyOf(item.id)
+  state.open = !state.open
+  if (state.open && !state.loaded) {
+    loadReplies(item.id)
+  }
+}
+
+const loadReplies = async (reviewId, append = false) => {
+  const state = replyOf(reviewId)
+  state.loading = true
+  try {
+    const data = await pageReviewReplies({
+      reviewId,
+      pageNum: state.pageNum,
+      pageSize: state.pageSize,
+    })
+    const records = data.records || []
+    state.list = append ? [...state.list, ...records] : records
+    state.total = Number(data.total || 0)
+    state.loaded = true
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    state.loading = false
+  }
+}
+
+const loadMoreReplies = (reviewId) => {
+  const state = replyOf(reviewId)
+  state.pageNum += 1
+  loadReplies(reviewId, true)
+}
+
+// 点击回复：reply 为空表示直接回复该评价（如质询“该商品真的这么好吗？”），否则回复某条回复
+const startReply = (reviewId, reply = null) => {
+  const state = replyOf(reviewId)
+  state.open = true
+  if (!state.loaded) {
+    loadReplies(reviewId)
+  }
+  state.target = reply
+    ? { userId: reply.userId, nickname: reply.userNickname || `用户${reply.userId}` }
+    : null
+  state.input = ''
+}
+
+const cancelReplyTarget = (reviewId) => {
+  replyOf(reviewId).target = null
+}
+
+const onSubmitReply = async (reviewId) => {
+  const state = replyOf(reviewId)
+  if (!state.input.trim()) {
+    ElMessage.warning('请输入回复内容')
+    return
+  }
+  state.submitting = true
+  try {
+    const reply = await saveReviewReply({
+      reviewId,
+      content: state.input,
+      replyUserId: state.target?.userId || undefined,
+    })
+    // 时间正序展示，新回复直接追加到末尾
+    state.list = [...state.list, reply]
+    state.total += 1
+    state.input = ''
+    state.target = null
+    ElMessage.success('回复成功')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    state.submitting = false
+  }
+}
+
+const onDeleteReply = (reviewId, reply) => {
+  ElMessageBox.confirm('确定删除这条回复吗？', '删除回复', {
+    type: 'warning',
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+  })
+    .then(async () => {
+      try {
+        await deleteReviewReply(reply.id)
+        const state = replyOf(reviewId)
+        state.list = state.list.filter((it) => String(it.id) !== String(reply.id))
+        state.total -= 1
+        ElMessage.success('回复已删除')
+      } catch (e) {
+        ElMessage.error(e.message)
+      }
+    })
+    .catch(() => {})
+}
 
 onMounted(() => {
   loadDetail()
@@ -314,6 +439,84 @@ onMounted(() => {
                       preload="metadata"
                       class="review-media-video"
                     ></video>
+                  </div>
+
+                  <!-- 回复互动：所有登录用户均可质询/回复，无需购买过该商品 -->
+                  <div class="review-actions">
+                    <el-button link type="primary" size="small" @click="toggleReplies(item)">
+                      {{
+                        replyOf(item.id).open
+                          ? '收起回复'
+                          : replyOf(item.id).loaded && replyOf(item.id).total > 0
+                            ? `回复 (${replyOf(item.id).total})`
+                            : '回复'
+                      }}
+                    </el-button>
+                  </div>
+
+                  <div v-if="replyOf(item.id).open" class="reply-section">
+                    <div v-loading="replyOf(item.id).loading" class="reply-list">
+                      <div v-for="reply in replyOf(item.id).list" :key="reply.id" class="reply-item">
+                        <el-avatar :size="28" :src="reply.userAvatar || ''" class="reply-avatar">
+                          {{ (reply.userNickname || '宠').slice(0, 1) }}
+                        </el-avatar>
+                        <div class="reply-body">
+                          <div class="reply-head">
+                            <span class="reply-user">{{ reply.userNickname || `用户${reply.userId}` }}</span>
+                            <template v-if="reply.replyUserId">
+                              <span class="reply-arrow">回复</span>
+                              <span class="reply-user">@{{ reply.replyUserNickname || `用户${reply.replyUserId}` }}</span>
+                            </template>
+                            <span class="reply-time">{{ formatTime(reply.createTime) }}</span>
+                          </div>
+                          <div class="reply-content">{{ reply.content }}</div>
+                          <div class="reply-actions">
+                            <el-button link type="primary" size="small" @click="startReply(item.id, reply)">回复</el-button>
+                            <el-button
+                              v-if="isMine(reply.userId)"
+                              link
+                              type="danger"
+                              size="small"
+                              @click="onDeleteReply(item.id, reply)"
+                            >
+                              删除
+                            </el-button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div v-if="replyOf(item.id).list.length < replyOf(item.id).total" class="reply-more">
+                        <el-button link type="primary" size="small" @click="loadMoreReplies(item.id)">
+                          查看更多回复（已加载 {{ replyOf(item.id).list.length }}/{{ replyOf(item.id).total }}）
+                        </el-button>
+                      </div>
+                      <div v-if="!replyOf(item.id).loading && replyOf(item.id).list.length === 0" class="reply-empty">
+                        还没有人回复，来质询或追问吧~
+                      </div>
+                    </div>
+
+                    <div class="reply-input">
+                      <div v-if="replyOf(item.id).target" class="reply-target">
+                        回复 @{{ replyOf(item.id).target.nickname }}
+                        <el-button link size="small" @click="cancelReplyTarget(item.id)">取消</el-button>
+                      </div>
+                      <div class="reply-input-row">
+                        <el-input
+                          v-model="replyOf(item.id).input"
+                          maxlength="500"
+                          show-word-limit
+                          placeholder="友善互动，比如：该商品真的这么好吗？"
+                          @keyup.enter="onSubmitReply(item.id)"
+                        />
+                        <el-button
+                          type="primary"
+                          :loading="replyOf(item.id).submitting"
+                          @click="onSubmitReply(item.id)"
+                        >
+                          发布
+                        </el-button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -634,6 +837,97 @@ onMounted(() => {
   border-radius: 8px;
   background: #000;
   display: block;
+}
+.review-actions {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 评价回复互动区 */
+.reply-section {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: var(--pv-tint);
+  border-radius: 10px;
+}
+.reply-list {
+  min-height: 20px;
+}
+.reply-item {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+}
+.reply-item + .reply-item {
+  border-top: 1px dashed var(--pv-border);
+}
+.reply-avatar {
+  flex-shrink: 0;
+  background: #fff;
+  color: var(--pv-text);
+}
+.reply-body {
+  flex: 1;
+  min-width: 0;
+}
+.reply-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.reply-user {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pv-text);
+}
+.reply-arrow {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+}
+.reply-time {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  margin-left: auto;
+}
+.reply-content {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--pv-text);
+  line-height: 1.6;
+  word-break: break-word;
+}
+.reply-actions {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.reply-more {
+  padding: 4px 0;
+}
+.reply-empty {
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+}
+.reply-target {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.reply-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.reply-input-row .el-button {
+  flex-shrink: 0;
 }
 .pager {
   margin-top: 16px;

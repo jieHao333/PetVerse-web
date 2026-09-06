@@ -157,6 +157,12 @@ const goReview = (item) => {
   const { href } = router.resolve(`/shop/product/${item.productId}/review`)
   window.open(href, '_blank')
 }
+
+// 点击「我的评价」新标签页展示当前用户评价过的商品列表
+const openMyReviews = () => {
+  const { href } = router.resolve('/shop/my-reviews')
+  window.open(href, '_blank')
+}
 </script>
 
 <template>
@@ -166,7 +172,10 @@ const goReview = (item) => {
         <template #header>
           <div class="card-header">
             <span class="card-title">我的订单</span>
-            <el-button text :icon="ArrowLeft" @click="router.push('/shop')">去商城逛逛</el-button>
+            <div>
+              <el-button text @click="openMyReviews">我的评价</el-button>
+              <el-button text :icon="ArrowLeft" @click="router.push('/shop')">去商城逛逛</el-button>
+            </div>
           </div>
         </template>
 

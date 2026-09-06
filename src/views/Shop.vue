@@ -64,6 +64,12 @@ const openDetail = (item) => {
 const goStore = (item) => {
   router.push(`/shop/store/${item.merchantId}`)
 }
+
+// 点击「我的评价」新标签页展示当前用户评价过的商品列表
+const openMyReviews = () => {
+  const { href } = router.resolve('/shop/my-reviews')
+  window.open(href, '_blank')
+}
 </script>
 
 <template>
@@ -99,6 +105,7 @@ const goStore = (item) => {
               />
               <el-button type="primary" @click="onSearch">搜索</el-button>
               <el-button :icon="ShoppingCart" plain @click="router.push('/shop/cart')">购物车</el-button>
+              <el-button plain @click="openMyReviews">我的评价</el-button>
             </div>
           </div>
         </template>

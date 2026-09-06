@@ -98,6 +98,9 @@ export const deleteProductReview = (id) => request.delete(`/shop/review/${id}`)
 /** 分页查询商品评价：{ productId, rating, pageNum, pageSize } */
 export const pageProductReviews = (params) => request.get('/shop/review/page', { params })
 
+/** 分页查询我的评价（聚合商品信息、店铺名称与回复互动数）：{ pageNum, pageSize } */
+export const pageMyReviews = (params) => request.get('/shop/review/my/page', { params })
+
 /** 查询商品评价汇总（平均分/总数/当前用户评价资格） */
 export const getReviewSummary = (productId) => request.get(`/shop/review/summary/${productId}`)
 

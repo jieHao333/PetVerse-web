@@ -3,7 +3,16 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { CircleClose, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import { deleteSpace, getSpacePage, saveSpace, updateSpace, uploadSpaceMedia } from '@/api/space'
-import { LIKE_TARGET_SPACE, likeTarget, unlikeTarget } from '@/api/remark'
+import {
+  COMMENT_TARGET_SPACE,
+  LIKE_TARGET_SPACE,
+  deleteComment,
+  getCommentCounts,
+  getCommentPage,
+  likeTarget,
+  saveComment,
+  unlikeTarget,
+} from '@/api/remark'
 
 const router = useRouter()
 
@@ -53,6 +62,9 @@ const loadSpaces = async () => {
     spaces.value = data.records
     // 后端 Long 统一序列化为字符串（防雪花ID精度丢失），total 需还原为数字供分页组件使用
     total.value = Number(data.total || 0)
+    // 动态列表刷新后重置各条评论区状态，并批量拉取评论数快照
+    commentStateMap.value = {}
+    loadCommentCounts()
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
@@ -96,6 +108,157 @@ const onToggleLike = async (item) => {
   } finally {
     likingIds.value.delete(item.id)
   }
+}
+
+/* ==================== 动态评论互动（评论按钮展开查看该动态下所有评论） ==================== */
+
+// 判断是否本人（Long 已序列化为字符串，统一转字符串比较），本人评论可删除
+const isMine = (userId) => String(userId) === myId
+
+// 每条动态的评论数快照（列表加载后批量拉取，key 为动态ID字符串）
+const commentCountMap = ref({})
+
+const loadCommentCounts = async () => {
+  const ids = spaces.value.map((s) => s.id).filter(Boolean)
+  if (!ids.length) {
+    commentCountMap.value = {}
+    return
+  }
+  try {
+    commentCountMap.value = (await getCommentCounts(COMMENT_TARGET_SPACE, ids)) || {}
+  } catch {
+    // 评论数拉取失败不阻断动态展示，按 0 处理
+    commentCountMap.value = {}
+  }
+}
+
+// 每条动态独立的评论区状态：展开/列表/分页/输入框/回复对象
+const commentStateMap = ref({})
+
+const commentOf = (spaceId) => {
+  if (!commentStateMap.value[spaceId]) {
+    commentStateMap.value[spaceId] = {
+      open: false,
+      list: [],
+      total: 0,
+      pageNum: 1,
+      pageSize: 10,
+      loading: false,
+      loaded: false,
+      input: '',
+      target: null,
+      submitting: false,
+    }
+  }
+  return commentStateMap.value[spaceId]
+}
+
+// 展示的评论数：已展开加载过用实时总数，否则用批量拉取的快照
+const commentCount = (item) => {
+  const state = commentStateMap.value[item.id]
+  if (state && state.loaded) return state.total
+  return Number(commentCountMap.value[item.id] || 0)
+}
+
+const toggleComments = (item) => {
+  const state = commentOf(item.id)
+  state.open = !state.open
+  if (state.open && !state.loaded) {
+    loadComments(item.id)
+  }
+}
+
+const loadComments = async (spaceId, append = false) => {
+  const state = commentOf(spaceId)
+  state.loading = true
+  try {
+    const data = await getCommentPage({
+      targetType: COMMENT_TARGET_SPACE,
+      targetId: spaceId,
+      pageNum: state.pageNum,
+      pageSize: state.pageSize,
+    })
+    const records = data.records || []
+    state.list = append ? [...state.list, ...records] : records
+    state.total = Number(data.total || 0)
+    state.loaded = true
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    state.loading = false
+  }
+}
+
+const loadMoreComments = (spaceId) => {
+  const state = commentOf(spaceId)
+  state.pageNum += 1
+  loadComments(spaceId, true)
+}
+
+// 点击回复：comment 为空表示直接评论动态，否则回复某条评论
+const startCommentReply = (spaceId, comment = null) => {
+  const state = commentOf(spaceId)
+  state.open = true
+  if (!state.loaded) {
+    loadComments(spaceId)
+  }
+  state.target = comment
+    ? { userId: comment.userId, nickname: comment.userNickname || `用户${comment.userId}` }
+    : null
+  state.input = ''
+}
+
+const cancelCommentTarget = (spaceId) => {
+  commentOf(spaceId).target = null
+}
+
+const onSubmitComment = async (spaceId) => {
+  const state = commentOf(spaceId)
+  if (!state.input.trim()) {
+    ElMessage.warning('请输入评论内容')
+    return
+  }
+  state.submitting = true
+  try {
+    const comment = await saveComment({
+      targetType: COMMENT_TARGET_SPACE,
+      targetId: spaceId,
+      content: state.input,
+      replyUserId: state.target?.userId || undefined,
+    })
+    // 时间正序展示，新评论直接追加到末尾，同步刷新计数
+    state.list = [...state.list, comment]
+    state.total += 1
+    commentCountMap.value[spaceId] = state.total
+    state.input = ''
+    state.target = null
+    ElMessage.success('评论成功')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    state.submitting = false
+  }
+}
+
+const onDeleteComment = (spaceId, comment) => {
+  ElMessageBox.confirm('确定删除这条评论吗？', '删除评论', {
+    type: 'warning',
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+  })
+    .then(async () => {
+      try {
+        await deleteComment(comment.id)
+        const state = commentOf(spaceId)
+        state.list = state.list.filter((it) => String(it.id) !== String(comment.id))
+        state.total -= 1
+        commentCountMap.value[spaceId] = state.total
+        ElMessage.success('评论已删除')
+      } catch (e) {
+        ElMessage.error(e.message)
+      }
+    })
+    .catch(() => {})
 }
 
 // 切换每页条数后回到第一页重新加载
@@ -350,6 +513,83 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
             >
               {{ Number(item.likeCount || 0) > 0 ? Number(item.likeCount) : (item.liked ? '1' : '点赞') }}
             </el-button>
+            <el-button link class="comment-btn" @click="toggleComments(item)">
+              💬 {{ commentOf(item.id).open ? '收起回复' : '评论' }}
+              <span v-if="commentCount(item) > 0">({{ commentCount(item) }})</span>
+            </el-button>
+          </div>
+
+          <!-- 评论互动区：查看该动态下所有评论，也可参与评论/回复 -->
+          <div v-if="commentOf(item.id).open" class="comment-section">
+            <div v-loading="commentOf(item.id).loading" class="comment-list">
+              <div v-for="c in commentOf(item.id).list" :key="c.id" class="comment-item">
+                <el-avatar :size="28" :src="c.userAvatar || ''" class="comment-avatar">
+                  {{ (c.userNickname || '宠').slice(0, 1) }}
+                </el-avatar>
+                <div class="comment-body">
+                  <div class="comment-head">
+                    <span class="comment-user" @click="gotoProfile(c.userId)">
+                      {{ c.userNickname || `用户${c.userId}` }}
+                    </span>
+                    <template v-if="c.replyUserId">
+                      <span class="comment-arrow">回复</span>
+                      <span class="comment-user" @click="gotoProfile(c.replyUserId)">
+                        @{{ c.replyUserNickname || `用户${c.replyUserId}` }}
+                      </span>
+                    </template>
+                    <span class="comment-time">{{ formatTime(c.createTime) }}</span>
+                  </div>
+                  <div class="comment-content">{{ c.content }}</div>
+                  <div class="comment-actions">
+                    <el-button link type="primary" size="small" @click="startCommentReply(item.id, c)">回复</el-button>
+                    <el-button
+                      v-if="isMine(c.userId)"
+                      link
+                      type="danger"
+                      size="small"
+                      @click="onDeleteComment(item.id, c)"
+                    >
+                      删除
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="commentOf(item.id).list.length < commentOf(item.id).total" class="comment-more">
+                <el-button link type="primary" size="small" @click="loadMoreComments(item.id)">
+                  查看更多评论（已加载 {{ commentOf(item.id).list.length }}/{{ commentOf(item.id).total }}）
+                </el-button>
+              </div>
+              <div
+                v-if="!commentOf(item.id).loading && commentOf(item.id).list.length === 0"
+                class="comment-empty"
+              >
+                还没有人评论，来说两句吧
+              </div>
+            </div>
+
+            <div class="comment-input">
+              <div v-if="commentOf(item.id).target" class="comment-target">
+                回复 @{{ commentOf(item.id).target.nickname }}
+                <el-button link size="small" @click="cancelCommentTarget(item.id)">取消</el-button>
+              </div>
+              <div class="comment-input-row">
+                <el-input
+                  v-model="commentOf(item.id).input"
+                  maxlength="500"
+                  show-word-limit
+                  :placeholder="commentOf(item.id).target ? '回复这条评论…' : '评论这条动态…'"
+                  @keyup.enter="onSubmitComment(item.id)"
+                />
+                <el-button
+                  type="primary"
+                  :loading="commentOf(item.id).submitting"
+                  @click="onSubmitComment(item.id)"
+                >
+                  发布
+                </el-button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -498,9 +738,17 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
 .feed-footer {
   display: flex;
   align-items: center;
+  gap: 18px;
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--pv-border);
+}
+.comment-btn {
+  color: var(--pv-text-secondary);
+  font-size: 13px;
+}
+.comment-btn:hover {
+  color: var(--pv-ink);
 }
 .like-btn {
   color: var(--pv-text-secondary);
@@ -514,6 +762,96 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
 }
 .like-btn.liked:hover {
   color: var(--el-color-warning);
+}
+
+/* 评论互动区 */
+.comment-section {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--pv-tint);
+  border-radius: 10px;
+}
+.comment-list {
+  min-height: 20px;
+}
+.comment-item {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+}
+.comment-item + .comment-item {
+  border-top: 1px dashed var(--pv-border);
+}
+.comment-avatar {
+  flex-shrink: 0;
+  background: #fff;
+  color: var(--pv-text);
+}
+.comment-body {
+  flex: 1;
+  min-width: 0;
+}
+.comment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.comment-user {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pv-text);
+  cursor: pointer;
+}
+.comment-user:hover {
+  text-decoration: underline;
+}
+.comment-arrow {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+}
+.comment-time {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  margin-left: auto;
+}
+.comment-content {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--pv-text);
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.comment-actions {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.comment-more {
+  padding: 4px 0;
+}
+.comment-empty {
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+}
+.comment-target {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.comment-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.comment-input-row .el-button {
+  flex-shrink: 0;
 }
 
 /* 动态流 */
