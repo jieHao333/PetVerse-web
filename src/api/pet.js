@@ -21,10 +21,10 @@ export const randomCatalog = () => request.get('/pet/catalog/random')
 /** 领取虚拟宠物 */
 export const claimPet = (data) => request.post('/pet/claim', data)
 
-/** 登记真实宠物（名称 + 收养时间），返回新建的宠物信息 */
+/** 登记真实宠物（名称 + 种类必填，收养时间可选），返回新建的宠物信息 */
 export const registerPet = (data) => request.post('/pet/register', data)
 
-/** 完善真实宠物档案（种类/性别/生日/绝育），返回更新后的宠物信息 */
+/** 完善真实宠物档案（种类/品种/性别/生日/绝育），返回更新后的宠物信息 */
 export const updatePetProfile = (data) => request.put('/pet/profile', data)
 
 /** 修改宠物名称（按宠物ID），返回更新后的宠物信息 */

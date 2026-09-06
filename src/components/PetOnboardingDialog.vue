@@ -2,6 +2,8 @@
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { registerPet } from '@/api/pet'
+import { PET_SPECIES } from '@/data/petOptions'
+import logo from '@/assets/logo.jpg'
 
 const props = defineProps({
   /** 是否显示弹窗，配合 v-model 使用 */
@@ -13,10 +15,10 @@ const emit = defineEmits(['update:modelValue', 'registered'])
 
 const router = useRouter()
 
-// 步骤：choose-选择是否已有宠物；form-登记真实宠物名称与收养时间
+// 步骤：choose-选择是否已有宠物；form-登记真实宠物名称、种类与收养时间
 const step = ref('choose')
 const submitting = ref(false)
-const form = reactive({ name: '', adoptionDate: '' })
+const form = reactive({ name: '', species: '', adoptionDate: '' })
 
 // 根据名下是否已有宠物切换文案：无宠物为新人欢迎引导，有宠物为「添加宠物」
 const dialogTitle = computed(() => (props.addMode ? '添加宠物' : '欢迎来到 PetVerse'))
@@ -61,14 +63,22 @@ const onSubmit = async () => {
     ElMessage.warning('宠物名称不能超过50个字符')
     return
   }
+  // 种类必填，如：猫、狗
+  const species = form.species?.trim()
+  if (!species) {
+    ElMessage.warning('请选择宠物种类，如：猫、狗')
+    return
+  }
   submitting.value = true
   try {
     const pet = await registerPet({
       name,
+      species,
       adoptionDate: form.adoptionDate || undefined,
     })
     ElMessage.success(`已登记 ${name}，可在首页完善它的信息`)
     form.name = ''
+    form.species = ''
     form.adoptionDate = ''
     step.value = 'choose'
     emit('registered', pet)
@@ -93,7 +103,7 @@ const onSubmit = async () => {
   >
     <template #header>
       <div class="ob-header">
-        <span class="ob-logo">🐾</span>
+        <img :src="logo" alt="PetVerse" class="ob-logo" />
         <span class="ob-title">{{ dialogTitle }}</span>
       </div>
     </template>
@@ -121,10 +131,24 @@ const onSubmit = async () => {
 
     <!-- 第二步：登记真实宠物 -->
     <div v-else class="ob-body">
-      <p class="ob-tip">登记你的宠物，名称必填，收养时间可选</p>
+      <p class="ob-tip">登记你的宠物，名称与种类必填，收养时间可选</p>
       <el-form label-position="top" size="large" @submit.prevent="onSubmit">
         <el-form-item label="宠物名称" required>
           <el-input v-model="form.name" maxlength="50" placeholder="给它取个名字吧" clearable />
+        </el-form-item>
+        <el-form-item label="宠物种类" required>
+          <el-select
+            v-model="form.species"
+            placeholder="请选择或输入宠物种类"
+            filterable
+            allow-create
+            default-first-option
+            :reserve-keyword="false"
+            clearable
+            style="width: 100%"
+          >
+            <el-option v-for="item in PET_SPECIES" :key="item" :label="item" :value="item" />
+          </el-select>
         </el-form-item>
         <el-form-item label="收养时间">
           <el-date-picker
@@ -158,11 +182,8 @@ const onSubmit = async () => {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background: var(--pv-ink);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
+  object-fit: cover;
+  display: block;
 }
 .ob-title {
   font-size: 18px;

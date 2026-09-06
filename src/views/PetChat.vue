@@ -1,9 +1,14 @@
 <script setup>
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import AppHeader from '@/components/AppHeader.vue'
-import { getMyPet } from '@/api/pet'
-import { chatStream, getChatHistory, clearChatHistory } from '@/api/ai'
+import { Delete, Plus } from '@element-plus/icons-vue'
+import { getMyPet, listMyPets } from '@/api/pet'
+import {
+  chatStream,
+  getChatHistory,
+  listChatSessions,
+  deleteChatSession,
+} from '@/api/ai'
 
 const router = useRouter()
 
@@ -19,9 +24,31 @@ const formatMsgTime = (ts) => {
   return `${hh}:${mm}`
 }
 
+// 真实宠物按生日计算年龄，不足 1 岁展示月龄；虚拟宠物直接用年龄字段
+const petAgeText = (p) => {
+  if (p.type !== 'REAL') return p.age != null ? `${p.age} 岁` : ''
+  if (!p.birthday) return ''
+  const birth = new Date(p.birthday)
+  const now = new Date()
+  let months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
+  if (now.getDate() < birth.getDate()) months -= 1
+  if (months < 0) months = 0
+  return months >= 12 ? `${Math.floor(months / 12)} 岁` : `${months} 个月`
+}
+
+// 宠物列表项的副标题：统一按「种类 · 品种 · 年龄」展示；未完善档案的真实宠物只展示种类
+const petLine = (p) => {
+  if (p.type === 'REAL' && !p.cardIssueDate) return p.species || '未填种类'
+  return [p.species, p.breed, petAgeText(p)].filter(Boolean).join(' · ')
+}
+
 // ---------- 页面状态 ----------
-const pet = ref(null) // 当前代表宠物（优先虚拟宠物，无则真实宠物）
+const pets = ref([]) // 当前用户的全部宠物（侧栏切换用）
+const pet = ref(null) // 当前选中宠物
+const sessions = ref([]) // 当前宠物的会话列表（最近活跃在前）
+const currentSessionId = ref(null) // 当前会话 ID；null 表示待创建的新会话
 const loadingPet = ref(true) // 宠物信息加载中
+const loadingSessions = ref(false) // 会话列表加载中
 const loadingHistory = ref(false) // 历史对话加载中
 // 会话消息列表：[{ role: 'user' | 'assistant', content, ts, thinking, stopped, error }]
 const messages = ref([])
@@ -29,6 +56,12 @@ const inputText = ref('') // 输入框内容
 const sending = ref(false) // 是否正在流式生成中
 const scrollbarRef = ref(null) // 消息区 el-scrollbar 实例
 let streamCtrl = null // 当前流式请求控制器（{ abort }）
+
+// 宠物激活态比较键：宠物 ID 为雪花 ID（后端 Long 序列化为字符串），用字符串比较避免 Number() 精度丢失
+const petKey = (p) => (p == null ? null : String(p.id))
+const isPetActive = (p) => petKey(p) === petKey(pet.value)
+// 会话激活态比较键：会话 ID 为 MySQL 自增小整数，转数字比较安全
+const isSessionActive = (s) => currentSessionId.value != null && Number(s.id) === Number(currentSessionId.value)
 
 // 新消息上屏 / 流式追加时把消息区滚到底部
 const scrollToBottom = async () => {
@@ -43,15 +76,31 @@ const finishStream = () => {
   scrollToBottom()
 }
 
-// ---------- 初始化 ----------
-// 加载历史对话（后端按时间正序返回）
-const loadHistory = async () => {
+// ---------- 会话与历史 ----------
+// 刷新当前宠物的会话列表
+const refreshSessions = async () => {
+  if (!pet.value) return
+  loadingSessions.value = true
+  try {
+    const data = await listChatSessions(pet.value.id)
+    sessions.value = data?.sessions || []
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    loadingSessions.value = false
+  }
+}
+
+// 加载当前会话的历史对话（后端按时间正序返回）
+const loadHistory = async (sessionId) => {
   loadingHistory.value = true
   try {
-    const data = await getChatHistory(pet.value.id)
-    // 守卫：await 期间用户可能已发送消息并在流式生成中（sending 为 true），
+    const data = await getChatHistory(sessionId)
+    // 守卫一：await 期间用户可能已切换到别的会话，跳过过期响应避免串会话
+    if (currentSessionId.value == null || Number(currentSessionId.value) !== Number(sessionId)) return
+    // 守卫二：await 期间用户可能已发送消息并在流式生成中（sending 为 true），
     // 此时整体覆盖 messages 会吞掉进行中的对话气泡，因此直接跳过本次覆盖、
-    // 保留当前会话画面（历史不急于这一轮刷新，结束后重进页面即可看到）
+    // 保留当前会话画面（历史不急于这一轮刷新，结束后重进会话即可看到）
     if (sending.value) return
     messages.value = (data?.messages || []).map((m) => ({
       role: m.role,
@@ -66,10 +115,26 @@ const loadHistory = async () => {
   }
 }
 
+// ---------- 初始化 ----------
 onMounted(async () => {
   try {
-    pet.value = await getMyPet()
-    if (pet.value) await loadHistory()
+    // 宠物列表 + 代表宠物并行加载：默认选中代表宠物（优先虚拟宠物）
+    const [myPet, myPets] = await Promise.all([
+      getMyPet().catch(() => null),
+      listMyPets().catch(() => []),
+    ])
+    pets.value = myPets || []
+    const target =
+      (myPet && pets.value.find((p) => petKey(p) === petKey(myPet))) || myPet || pets.value[0] || null
+    pet.value = target
+    if (target) {
+      await refreshSessions()
+      // 进页面默认打开该宠物最近活跃的会话；没有会话则展示空咨询页
+      if (sessions.value.length) {
+        currentSessionId.value = Number(sessions.value[0].id)
+        await loadHistory(currentSessionId.value)
+      }
+    }
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
@@ -82,6 +147,60 @@ onUnmounted(() => {
   streamCtrl?.abort()
 })
 
+// ---------- 宠物切换 / 会话管理 ----------
+// 切换宠物：默认进入“新对话”待创建态（懒创建），想回到历史咨询需在侧栏手动选择。
+// 不立即调建会话接口——否则频繁切换会不断产生空的历史会话记录；
+// 真正的会话在用户发出首条消息时由后端自动创建并通过 meta 事件回传（与「新会话」按钮一致）。
+const switchPet = async (p) => {
+  if (!p || isPetActive(p)) return
+  // 切换前中断进行中的流式生成，避免回复落入已切走的会话画面
+  if (sending.value) handleStop()
+  pet.value = p
+  currentSessionId.value = null
+  messages.value = []
+  // 刷新侧栏为新宠物的历史会话列表，供用户手动选择回到过往咨询
+  await refreshSessions()
+}
+
+// 手动选择历史会话
+const selectSession = async (s) => {
+  if (isSessionActive(s)) return
+  if (sending.value) handleStop()
+  currentSessionId.value = Number(s.id)
+  messages.value = []
+  await loadHistory(currentSessionId.value)
+}
+
+// 新建会话：先置为待创建态，首条消息发送时由后端创建并通过 meta 回传会话 ID
+const newSession = () => {
+  if (!pet.value) return
+  if (sending.value) handleStop()
+  currentSessionId.value = null
+  messages.value = []
+}
+
+// 删除会话（连带会话下全部消息）
+const onDeleteSession = async (s) => {
+  try {
+    await deleteChatSession(s.id)
+    sessions.value = sessions.value.filter((x) => Number(x.id) !== Number(s.id))
+    // 删除的是当前会话：自动落到列表中最近活跃的会话，没有则回到新对话待创建态
+    if (isSessionActive(s)) {
+      if (sending.value) handleStop()
+      messages.value = []
+      if (sessions.value.length) {
+        currentSessionId.value = Number(sessions.value[0].id)
+        await loadHistory(currentSessionId.value)
+      } else {
+        currentSessionId.value = null
+      }
+    }
+    ElMessage.success('会话已删除')
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
+}
+
 // ---------- 发送与流式渲染 ----------
 const handleSend = () => {
   const text = inputText.value.trim()
@@ -91,12 +210,12 @@ const handleSend = () => {
   // 用户消息立即上屏（乐观渲染），并写入本地会话状态数组
   messages.value.push({ role: 'user', content: text, ts: nowSec() })
   inputText.value = ''
-  // 宠物侧先出现「思考中」占位气泡，首个 delta 到达后替换为流式文本
+  // 顾问侧先出现「思考中」占位气泡，首个 delta 到达后替换为流式文本
   messages.value.push({ role: 'assistant', content: '', thinking: true, ts: nowSec() })
   sending.value = true
   scrollToBottom()
 
-  // 按后端接口契约组装宠物画像
+  // 按后端接口契约组装宠物画像（作为咨询上下文）
   const petPayload = {
     id: pet.value.id,
     name: pet.value.name,
@@ -111,6 +230,13 @@ const handleSend = () => {
   streamCtrl = chatStream({
     message: text,
     pet: petPayload,
+    sessionId: currentSessionId.value,
+    onMeta: ({ sessionId }) => {
+      // 首帧 meta：后端自动新建会话后回传会话 ID，前端绑定并刷新会话列表
+      if (sessionId == null) return
+      currentSessionId.value = Number(sessionId)
+      refreshSessions()
+    },
     onDelta: (content) => {
       const last = messages.value[messages.value.length - 1]
       if (!last || last.role !== 'assistant') return
@@ -128,9 +254,11 @@ const handleSend = () => {
       const last = messages.value[messages.value.length - 1]
       if (last?.role === 'assistant' && !last.content && !last.error) {
         messages.value.pop()
-        ElMessage.warning('宠物没有回应，换个说法试试吧')
+        ElMessage.warning('顾问暂时没有回应，换个说法试试吧')
       }
       finishStream()
+      // 会话标题由后端用首条消息自动命名，结束后刷新列表展示最新标题
+      refreshSessions()
     },
     onError: (msg) => {
       const last = messages.value[messages.value.length - 1]
@@ -170,35 +298,10 @@ const onEnterKey = (e) => {
   e.preventDefault()
   handleSend()
 }
-
-// ---------- 清空对话 ----------
-const onClear = async () => {
-  if (!pet.value) return
-  try {
-    await ElMessageBox.confirm(`确定清空和 ${pet.value.name} 的全部对话记录吗？`, '清空对话', {
-      confirmButtonText: '清空',
-      cancelButtonText: '取消',
-      type: 'warning',
-    })
-  } catch {
-    return // 用户取消
-  }
-  // 若仍在生成中，先停止当前流
-  if (sending.value) handleStop()
-  try {
-    await clearChatHistory(pet.value.id)
-    messages.value = []
-    ElMessage.success('对话已清空')
-  } catch (e) {
-    ElMessage.error(e.message)
-  }
-}
 </script>
 
 <template>
   <div class="page">
-    <AppHeader title="PetVerse" show-nav />
-
     <div class="page-container">
       <!-- 宠物信息加载中 -->
       <el-card v-if="loadingPet" shadow="never" class="chat-card">
@@ -210,7 +313,7 @@ const onClear = async () => {
         <el-result
           icon="info"
           title="还没有宠物"
-          sub-title="先去领养一只心仪的宠物，再回来和你的 AI 伙伴聊天吧"
+          sub-title="先去领养一只心仪的宠物，再回来咨询它的健康与习性吧"
         >
           <template #extra>
             <el-button type="primary" size="large" round @click="router.push('/claim')">
@@ -220,99 +323,157 @@ const onClear = async () => {
         </el-result>
       </el-card>
 
-      <!-- 对话主体 -->
+      <!-- 对话主体：左侧宠物 / 会话侧栏 + 右侧聊天区 -->
       <el-card v-else shadow="never" class="chat-card">
-        <!-- 顶部宠物信息条 -->
-        <div class="chat-topbar">
-          <el-avatar :size="44" :src="pet.imageUrl || ''" class="pet-avatar">
-            {{ (pet.name || '宠')[0] }}
-          </el-avatar>
-          <div class="pet-brief">
-            <div class="name-row">
-              <span class="pet-name">{{ pet.name }}</span>
-              <!-- 真实宠物为纯档案，不展示等级 -->
-              <el-tag v-if="pet.type !== 'REAL'" effect="dark" round class="lv-tag">
-                Lv.{{ pet.level }}
-              </el-tag>
-            </div>
-            <p v-if="pet.type === 'REAL'" class="pet-sub">
-              {{ pet.species || '未填种类' }} · {{ pet.genderName || '未填性别' }}
-            </p>
-            <p v-else class="pet-sub">{{ pet.species }} · {{ pet.breed }} · {{ pet.age }} 岁</p>
-          </div>
-          <el-button size="small" round class="clear-btn" @click="onClear">清空对话</el-button>
-        </div>
-
-        <!-- 消息列表 -->
-        <div class="chat-body">
-          <el-skeleton v-if="loadingHistory" :rows="5" animated class="history-skeleton" />
-          <el-scrollbar v-else ref="scrollbarRef" class="msg-scroll">
-            <!-- 空会话欢迎占位 -->
-            <div v-if="!messages.length" class="empty-talk">
-              <el-avatar :size="72" :src="pet.imageUrl || ''" class="empty-avatar">
-                {{ (pet.name || '宠')[0] }}
-              </el-avatar>
-              <p class="empty-title">和 {{ pet.name }} 聊聊吧~</p>
-              <p class="empty-sub">它记得你们说过的话，越聊越懂你</p>
-            </div>
-
-            <!-- 消息气泡 -->
-            <div
-              v-for="(msg, idx) in messages"
-              :key="idx"
-              class="msg-row"
-              :class="msg.role === 'user' ? 'mine' : 'pet'"
-            >
-              <el-avatar
-                v-if="msg.role === 'assistant'"
-                :size="34"
-                :src="pet.imageUrl || ''"
-                class="msg-avatar"
-              >
-                {{ (pet.name || '宠')[0] }}
-              </el-avatar>
-              <div class="bubble-col">
-                <div class="bubble" :class="{ thinking: msg.thinking }">
-                  <!-- 思考中：三个跳动圆点 -->
-                  <template v-if="msg.thinking">
-                    <span class="dot"></span>
-                    <span class="dot"></span>
-                    <span class="dot"></span>
-                  </template>
-                  <template v-else>
-                    <span class="bubble-text">{{ msg.content }}</span>
-                    <span v-if="msg.stopped" class="stop-mark">（已停止）</span>
-                    <span v-if="msg.error" class="err-mark">{{ msg.error }}</span>
-                  </template>
+        <div class="chat-layout">
+          <!-- 侧栏：宠物切换 + 当前宠物的会话列表 -->
+          <aside class="chat-sidebar">
+            <div class="side-section">
+              <div class="side-title">我的宠物</div>
+              <el-scrollbar class="pet-scroll">
+                <div
+                  v-for="p in pets"
+                  :key="p.id"
+                  class="pet-item"
+                  :class="{ active: isPetActive(p) }"
+                  @click="switchPet(p)"
+                >
+                  <el-avatar :size="34" :src="p.imageUrl || ''" class="pet-item-avatar">
+                    {{ (p.name || '宠')[0] }}
+                  </el-avatar>
+                  <div class="pet-item-info">
+                    <div class="pet-item-name">{{ p.name }}</div>
+                    <div class="pet-item-sub">{{ petLine(p) }}</div>
+                  </div>
                 </div>
-                <span v-if="msg.ts" class="msg-time">{{ formatMsgTime(msg.ts) }}</span>
+              </el-scrollbar>
+            </div>
+
+            <div class="side-section session-section">
+              <div class="side-title-row">
+                <span class="side-title">会话记录</span>
+                <el-button size="small" round :icon="Plus" @click="newSession">新会话</el-button>
+              </div>
+              <el-scrollbar class="session-scroll">
+                <div v-if="loadingSessions" class="session-empty">加载中...</div>
+                <div v-else-if="!sessions.length" class="session-empty">暂无历史会话</div>
+                <div
+                  v-for="s in sessions"
+                  :key="s.id"
+                  class="session-item"
+                  :class="{ active: isSessionActive(s) }"
+                  @click="selectSession(s)"
+                >
+                  <span class="session-title">{{ s.title || '新会话' }}</span>
+                  <el-popconfirm
+                    title="删除该会话及全部记录？"
+                    confirm-button-text="删除"
+                    cancel-button-text="取消"
+                    width="220"
+                    @confirm="onDeleteSession(s)"
+                  >
+                    <template #reference>
+                      <el-icon class="session-del" @click.stop><Delete /></el-icon>
+                    </template>
+                  </el-popconfirm>
+                </div>
+              </el-scrollbar>
+            </div>
+          </aside>
+
+          <!-- 右侧聊天区 -->
+          <div class="chat-main">
+            <!-- 顶部宠物信息条 -->
+            <div class="chat-topbar">
+              <el-avatar :size="44" :src="pet.imageUrl || ''" class="pet-avatar">
+                {{ (pet.name || '宠')[0] }}
+              </el-avatar>
+              <div class="pet-brief">
+                <div class="name-row">
+                  <span class="pet-name">{{ pet.name }}</span>
+                  <!-- 真实宠物为纯档案，不展示等级 -->
+                  <el-tag v-if="pet.type !== 'REAL'" effect="dark" round class="lv-tag">
+                    Lv.{{ pet.level }}
+                  </el-tag>
+                </div>
+                <p class="pet-sub">AI 养宠顾问 · 咨询 {{ pet.name }} 的健康与习性</p>
               </div>
             </div>
-          </el-scrollbar>
-        </div>
 
-        <!-- 底部输入区 -->
-        <div class="chat-input">
-          <el-input
-            v-model="inputText"
-            type="textarea"
-            :autosize="{ minRows: 1, maxRows: 3 }"
-            resize="none"
-            :placeholder="`和 ${pet.name} 说点什么...`"
-            class="chat-textarea"
-            @keydown.enter="onEnterKey"
-          />
-          <el-button
-            v-if="!sending"
-            type="primary"
-            round
-            class="send-btn"
-            :disabled="!inputText.trim()"
-            @click="handleSend"
-          >
-            发送
-          </el-button>
-          <el-button v-else round class="send-btn stop-btn" @click="handleStop">停止</el-button>
+            <!-- 消息列表 -->
+            <div class="chat-body">
+              <el-skeleton v-if="loadingHistory" :rows="5" animated class="history-skeleton" />
+              <el-scrollbar v-else ref="scrollbarRef" class="msg-scroll">
+                <!-- 空会话欢迎占位 -->
+                <div v-if="!messages.length" class="empty-talk">
+                  <el-avatar :size="72" :src="pet.imageUrl || ''" class="empty-avatar">
+                    {{ (pet.name || '宠')[0] }}
+                  </el-avatar>
+                  <p class="empty-title">开始一段新的咨询</p>
+                  <p class="empty-sub">
+                    向 AI 养宠顾问咨询 {{ pet.name }} 的健康、习性、喂养等问题吧
+                  </p>
+                </div>
+
+                <!-- 消息气泡 -->
+                <div
+                  v-for="(msg, idx) in messages"
+                  :key="idx"
+                  class="msg-row"
+                  :class="msg.role === 'user' ? 'mine' : 'ai'"
+                >
+                  <el-avatar
+                    v-if="msg.role === 'assistant'"
+                    :size="34"
+                    :src="pet.imageUrl || ''"
+                    class="msg-avatar"
+                  >
+                    {{ (pet.name || '宠')[0] }}
+                  </el-avatar>
+                  <div class="bubble-col">
+                    <div class="bubble" :class="{ thinking: msg.thinking }">
+                      <!-- 思考中：三个跳动圆点 -->
+                      <template v-if="msg.thinking">
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                      </template>
+                      <template v-else>
+                        <span class="bubble-text">{{ msg.content }}</span>
+                        <span v-if="msg.stopped" class="stop-mark">（已停止）</span>
+                        <span v-if="msg.error" class="err-mark">{{ msg.error }}</span>
+                      </template>
+                    </div>
+                    <span v-if="msg.ts" class="msg-time">{{ formatMsgTime(msg.ts) }}</span>
+                  </div>
+                </div>
+              </el-scrollbar>
+            </div>
+
+            <!-- 底部输入区 -->
+            <div class="chat-input">
+              <el-input
+                v-model="inputText"
+                type="textarea"
+                :autosize="{ minRows: 1, maxRows: 3 }"
+                resize="none"
+                :placeholder="`咨询 ${pet.name} 的健康、习性等问题...`"
+                class="chat-textarea"
+                @keydown.enter="onEnterKey"
+              />
+              <el-button
+                v-if="!sending"
+                type="primary"
+                round
+                class="send-btn"
+                :disabled="!inputText.trim()"
+                @click="handleSend"
+              >
+                发送
+              </el-button>
+              <el-button v-else round class="send-btn stop-btn" @click="handleStop">停止</el-button>
+            </div>
+          </div>
         </div>
       </el-card>
     </div>
@@ -333,7 +494,159 @@ const onClear = async () => {
   padding: 48px 24px;
 }
 
-/* ---------- 顶部宠物信息条 ---------- */
+/* ---------- 整体布局：左侧栏 + 右聊天区 ---------- */
+.chat-layout {
+  display: flex;
+  align-items: stretch;
+}
+
+/* ---------- 侧栏 ---------- */
+.chat-sidebar {
+  width: 248px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--pv-border);
+  background: var(--pv-bg, #fafafa);
+}
+.side-section {
+  padding: 14px 12px;
+}
+.session-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--pv-border);
+}
+.side-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--pv-text-secondary);
+  padding: 0 4px;
+  margin-bottom: 10px;
+}
+.side-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  margin-bottom: 10px;
+}
+.side-title-row .side-title {
+  margin-bottom: 0;
+}
+
+/* 宠物列表项 */
+.pet-scroll {
+  max-height: 190px;
+}
+.pet-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s;
+}
+.pet-item:hover {
+  background: var(--pv-tint);
+}
+.pet-item.active {
+  background: var(--pv-tint);
+  border-color: var(--pv-border);
+}
+.pet-item-avatar {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.pet-item-info {
+  flex: 1;
+  min-width: 0;
+}
+.pet-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--pv-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pet-item-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 会话列表项 */
+.session-scroll {
+  flex: 1;
+  min-height: 120px;
+}
+.session-empty {
+  padding: 10px 6px;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  text-align: center;
+}
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px;
+  margin-bottom: 4px;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s;
+}
+.session-item:hover {
+  background: var(--pv-tint);
+}
+.session-item.active {
+  background: var(--pv-tint);
+  border-color: var(--pv-border);
+}
+.session-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--pv-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-item.active .session-title {
+  font-weight: 600;
+}
+.session-del {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: var(--pv-text-secondary);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.session-item:hover .session-del {
+  opacity: 1;
+}
+.session-del:hover {
+  color: var(--el-color-danger, #c45656);
+}
+
+/* ---------- 右侧聊天区 ---------- */
+.chat-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部宠物信息条 */
 .chat-topbar {
   display: flex;
   align-items: center;
@@ -371,17 +684,6 @@ const onClear = async () => {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--pv-text-secondary);
-}
-.clear-btn {
-  font-weight: 600;
-  color: var(--pv-text-secondary);
-  border-color: var(--pv-border);
-}
-.clear-btn:hover,
-.clear-btn:focus {
-  color: var(--pv-ink);
-  border-color: var(--pv-ink);
-  background: var(--pv-tint);
 }
 
 /* ---------- 消息列表 ---------- */
@@ -454,8 +756,8 @@ const onClear = async () => {
   word-break: break-word;
   white-space: pre-wrap;
 }
-/* 宠物气泡：靠左，浅底 */
-.msg-row.pet .bubble {
+/* 顾问气泡：靠左，浅底 */
+.msg-row.ai .bubble {
   background: var(--pv-tint);
   border: 1px solid var(--pv-border);
   border-bottom-left-radius: 4px;
@@ -539,6 +841,32 @@ const onClear = async () => {
 
 /* ---------- 移动端 ---------- */
 @media (max-width: 768px) {
+  /* 侧栏改为顶部横向区块：宠物横滑一行，会话列表限高 */
+  .chat-layout {
+    flex-direction: column;
+  }
+  .chat-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--pv-border);
+  }
+  .pet-scroll {
+    max-height: none;
+  }
+  .pet-scroll :deep(.el-scrollbar__view) {
+    display: flex;
+    gap: 8px;
+  }
+  .pet-item {
+    flex: 0 0 auto;
+    width: 168px;
+  }
+  .session-scroll {
+    max-height: 150px;
+  }
+  .session-del {
+    opacity: 1;
+  }
   .chat-topbar,
   .chat-body,
   .chat-input {

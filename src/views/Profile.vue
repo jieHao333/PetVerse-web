@@ -1,7 +1,6 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import AppHeader from '@/components/AppHeader.vue'
 import { getMe, updateUser, uploadAvatar } from '@/api/user'
 import { listMyPets, renamePet } from '@/api/pet'
 
@@ -127,8 +126,6 @@ const onSavePassword = async () => {
 
 <template>
   <div class="page">
-    <AppHeader title="个人资料" show-nav />
-
     <div class="page-container profile-container">
       <div class="profile-left">
         <!-- 宠物信息 -->
@@ -161,7 +158,7 @@ const onSavePassword = async () => {
                 plain
                 @click="router.push(`/pet/profile/${p.id}`)"
               >
-                完善信息
+                {{ p.cardIssueDate ? '修改信息' : '完善信息' }}
               </el-button>
               <el-button size="small" round class="rename-btn" @click="openRename(p)">改名</el-button>
             </div>

@@ -1,7 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import AppHeader from '@/components/AppHeader.vue'
 import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import PetDeleteDialog from '@/components/PetDeleteDialog.vue'
 import { getMe } from '@/api/user'
@@ -88,8 +87,8 @@ const onRegistered = async () => {
   await loadPets()
 }
 
-// 前往完善真实宠物信息
-const goComplete = (pet) => {
+// 前往完善/修改真实宠物信息（已签发身份卡即已完善，进入后数据全部回显）
+const goProfile = (pet) => {
   router.push(`/pet/profile/${pet.id}`)
 }
 
@@ -137,8 +136,6 @@ const onSignIn = async () => {
 
 <template>
   <div class="page">
-    <AppHeader title="PetVerse" show-nav />
-
     <div class="page-container">
       <!-- 欢迎 banner -->
       <div class="hero-banner">
@@ -197,8 +194,8 @@ const onSignIn = async () => {
                   </div>
                 </div>
                 <div class="row-actions">
-                  <el-button size="small" round type="primary" plain @click="goComplete(p)">
-                    完善宠物信息
+                  <el-button size="small" round type="primary" plain @click="goProfile(p)">
+                    {{ p.cardIssueDate ? '修改宠物信息' : '完善宠物信息' }}
                   </el-button>
                   <el-button size="small" round class="ghost-btn" @click="openRename(p)">改名</el-button>
                   <el-button size="small" round class="ghost-btn danger-btn" @click="openDelete(p)">删除</el-button>

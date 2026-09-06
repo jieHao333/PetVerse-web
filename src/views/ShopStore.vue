@@ -2,8 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Search, ShoppingCart } from '@element-plus/icons-vue'
-import AppHeader from '@/components/AppHeader.vue'
-import { addCartItem, getProductDetail, getStoreInfo, pageProducts } from '@/api/shop'
+import { addCartItem, getStoreInfo, pageProducts } from '@/api/shop'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,10 +27,6 @@ const categories = [
 
 const categoryTagType = (code) => ({ 1: 'primary', 2: 'warning', 3: 'danger' })[code] || 'info'
 
-const detailDialog = ref(false)
-const detail = ref(null)
-// 详情弹窗中的加购数量
-const buyQuantity = ref(1)
 const addingCart = ref(false)
 
 // 加载店铺公开信息
@@ -95,15 +90,10 @@ const onSizeChange = () => {
   loadProducts()
 }
 
-// 查看商品详情
-const openDetail = async (item) => {
-  try {
-    detail.value = await getProductDetail(item.id)
-    buyQuantity.value = 1
-    detailDialog.value = true
-  } catch (e) {
-    ElMessage.error(e.message)
-  }
+// 查看商品详情：新标签页打开商品详情页（加购/直接购买/评价均在详情页内完成）
+const openDetail = (item) => {
+  const { href } = router.resolve(`/shop/product/${item.id}`)
+  window.open(href, '_blank')
 }
 
 // 加入购物车（同一商品重复加购后端会累加数量）
@@ -112,7 +102,6 @@ const addToCart = async (productId, quantity) => {
   try {
     await addCartItem({ productId, quantity })
     ElMessage.success('已加入购物车')
-    detailDialog.value = false
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
@@ -123,8 +112,6 @@ const addToCart = async (productId, quantity) => {
 
 <template>
   <div class="page">
-    <AppHeader show-nav />
-
     <div class="page-container">
       <!-- 店铺信息 -->
       <el-card v-loading="storeLoading" shadow="never" class="section store-card">
@@ -240,43 +227,6 @@ const addToCart = async (productId, quantity) => {
         </div>
       </el-card>
     </div>
-
-    <!-- 商品详情 -->
-    <el-dialog v-model="detailDialog" title="商品详情" width="480px">
-      <div v-if="detail" class="detail-body">
-        <el-image :src="detail.imageUrl || ''" fit="cover" class="detail-img">
-          <template #error>
-            <div class="img-placeholder detail-placeholder">🛍️</div>
-          </template>
-        </el-image>
-        <div class="detail-name">{{ detail.name }}</div>
-        <div class="detail-tags">
-          <el-tag :type="categoryTagType(detail.category)" size="small" effect="plain">
-            {{ detail.categoryName }}
-          </el-tag>
-          <span class="detail-shop">{{ detail.shopName }}</span>
-        </div>
-        <div class="detail-price">
-          <span class="price">¥{{ detail.price }}</span>
-          <span class="stock">库存 {{ detail.stock }}</span>
-        </div>
-        <div v-if="detail.description" class="detail-desc">{{ detail.description }}</div>
-      </div>
-      <template #footer>
-        <div v-if="detail" class="detail-footer">
-          <el-input-number v-model="buyQuantity" :min="1" :max="Math.max(detail.stock || 1, 1)" />
-          <el-button
-            type="primary"
-            :icon="ShoppingCart"
-            :loading="addingCart"
-            :disabled="!detail.stock"
-            @click="addToCart(detail.id, buyQuantity)"
-          >
-            {{ detail.stock ? '加入购物车' : '已售罄' }}
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -464,57 +414,5 @@ const addToCart = async (productId, quantity) => {
 .total-text {
   font-size: 13px;
   color: var(--pv-text-secondary);
-}
-
-/* 详情弹窗 */
-.detail-body {
-  text-align: center;
-}
-.detail-img {
-  width: 100%;
-  height: 240px;
-  border-radius: 12px;
-  background: var(--pv-tint);
-}
-.detail-placeholder {
-  font-size: 56px;
-  border-radius: 12px;
-}
-.detail-name {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--pv-text);
-  margin-top: 14px;
-}
-.detail-tags {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-.detail-shop {
-  font-size: 13px;
-  color: var(--pv-text-secondary);
-}
-.detail-price {
-  margin-top: 12px;
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 14px;
-}
-.detail-desc {
-  margin-top: 12px;
-  color: var(--pv-text-secondary);
-  line-height: 1.7;
-  text-align: left;
-  white-space: pre-wrap;
-}
-.detail-footer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
 }
 </style>

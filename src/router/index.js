@@ -4,10 +4,25 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      // 主布局：顶栏仅挂载一次（logo 固定 PetVerse、导航列表固定），
+      // 导航页作为子路由，切换时只重新加载下方内容区
       path: '/',
-      name: 'home',
-      component: () => import('@/views/Home.vue'),
+      component: () => import('@/layouts/MainLayout.vue'),
       meta: { requiresAuth: true },
+      children: [
+        { path: '', name: 'home', component: () => import('@/views/Home.vue') },
+        { path: 'space', name: 'space', component: () => import('@/views/Space.vue') },
+        { path: 'friends', name: 'friends', component: () => import('@/views/Friends.vue') },
+        { path: 'pet-chat', name: 'petChat', component: () => import('@/views/PetChat.vue') },
+        { path: 'shop', name: 'shop', component: () => import('@/views/Shop.vue') },
+        { path: 'shop/product/:id', name: 'productDetail', component: () => import('@/views/ProductDetail.vue') },
+        { path: 'shop/product/:id/review', name: 'productReview', component: () => import('@/views/ProductReview.vue') },
+        { path: 'shop/store/:id', name: 'shopStore', component: () => import('@/views/ShopStore.vue') },
+        { path: 'shop/cart', name: 'shopCart', component: () => import('@/views/Cart.vue') },
+        { path: 'shop/orders', name: 'shopOrders', component: () => import('@/views/MyOrders.vue') },
+        { path: 'profile', name: 'profile', component: () => import('@/views/Profile.vue') },
+        { path: 'user/:id', name: 'userProfile', component: () => import('@/views/UserProfile.vue') },
+      ],
     },
     {
       path: '/claim',
@@ -22,63 +37,9 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/space',
-      name: 'space',
-      component: () => import('@/views/Space.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/friends',
-      name: 'friends',
-      component: () => import('@/views/Friends.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/profile',
-      name: 'profile',
-      component: () => import('@/views/Profile.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
       path: '/my-spaces',
       name: 'mySpaces',
       component: () => import('@/views/MySpaces.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/pet-chat',
-      name: 'petChat',
-      component: () => import('@/views/PetChat.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/user/:id',
-      name: 'userProfile',
-      component: () => import('@/views/UserProfile.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/shop',
-      name: 'shop',
-      component: () => import('@/views/Shop.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/shop/store/:id',
-      name: 'shopStore',
-      component: () => import('@/views/ShopStore.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/shop/cart',
-      name: 'shopCart',
-      component: () => import('@/views/Cart.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/shop/orders',
-      name: 'shopOrders',
-      component: () => import('@/views/MyOrders.vue'),
       meta: { requiresAuth: true },
     },
     {

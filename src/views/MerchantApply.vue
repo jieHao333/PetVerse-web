@@ -250,6 +250,7 @@ const onSubmit = async () => {
 }
 .narrow {
   max-width: 720px;
+  margin: 0 auto;
 }
 .section {
   margin-bottom: 24px;
@@ -292,6 +293,7 @@ const onSubmit = async () => {
 }
 .apply-form {
   max-width: 560px;
+  margin: 0 auto;
 }
 .license-uploader {
   width: 180px;

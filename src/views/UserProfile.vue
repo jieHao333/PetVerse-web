@@ -2,7 +2,6 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Search } from '@element-plus/icons-vue'
-import AppHeader from '@/components/AppHeader.vue'
 import { getUserById } from '@/api/user'
 import { getPetByUserId } from '@/api/pet'
 import { getSpacePage } from '@/api/space'
@@ -118,8 +117,6 @@ onUnmounted(() => {
 
 <template>
   <div class="page">
-    <AppHeader title="用户主页" show-nav />
-
     <div v-loading="loading" class="page-container up-container">
       <div class="up-left">
         <!-- 账号信息 -->

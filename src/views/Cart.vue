@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, ShoppingCart } from '@element-plus/icons-vue'
-import AppHeader from '@/components/AppHeader.vue'
 import { createOrder, listCart, payOrder, removeCartItem, updateCartItem } from '@/api/shop'
 
 const router = useRouter()
@@ -157,8 +156,6 @@ const onPay = async () => {
 
 <template>
   <div class="page">
-    <AppHeader show-nav />
-
     <div class="page-container">
       <el-card shadow="never">
         <template #header>

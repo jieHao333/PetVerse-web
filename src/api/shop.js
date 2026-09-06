@@ -69,6 +69,9 @@ export const removeCartItem = (id) => request.delete(`/shop/cart/${id}`)
 /** 从购物车勾选商品下单：{ cartItemIds, remark }（同一店铺，待支付） */
 export const createOrder = (data) => request.post('/shop/order', data)
 
+/** 直接购买下单：{ productId, quantity, remark }（不经过购物车，待支付） */
+export const buyNowOrder = (data) => request.post('/shop/order/buy-now', data)
+
 /** 支付订单（模拟支付，成功后生成取货码） */
 export const payOrder = (id) => request.post(`/shop/order/${id}/pay`)
 
@@ -81,6 +84,32 @@ export const pageMyOrders = (params) => request.get('/shop/order/page', { params
 /** 查询订单详情 */
 export const getOrderDetail = (id) => request.get(`/shop/order/${id}`)
 
+/* ==================== 商品评价（买家端） ==================== */
+
+/** 发表商品评价：{ productId, rating, content }（需存在已完成订单且未评价过） */
+export const saveProductReview = (data) => request.post('/shop/review', data)
+
+/** 修改我的商品评价：{ id, rating, content }（仅本人可改） */
+export const updateProductReview = (data) => request.put('/shop/review', data)
+
+/** 删除我的商品评价（仅本人可删，删除后无法重新评价） */
+export const deleteProductReview = (id) => request.delete(`/shop/review/${id}`)
+
+/** 分页查询商品评价：{ productId, rating, pageNum, pageSize } */
+export const pageProductReviews = (params) => request.get('/shop/review/page', { params })
+
+/** 查询商品评价汇总（平均分/总数/当前用户评价资格） */
+export const getReviewSummary = (productId) => request.get(`/shop/review/summary/${productId}`)
+
+/** 发表评价回复：{ reviewId, content, replyUserId? }（所有登录用户可互动） */
+export const saveReviewReply = (data) => request.post('/shop/review/reply', data)
+
+/** 分页查询评价回复：{ reviewId, pageNum, pageSize }（时间正序） */
+export const pageReviewReplies = (params) => request.get('/shop/review/reply/page', { params })
+
+/** 删除我的评价回复（仅本人可删） */
+export const deleteReviewReply = (id) => request.delete(`/shop/review/reply/${id}`)
+
 /* ==================== 店铺订单（商家端） ==================== */
 
 /** 分页查询店铺订单（支持状态筛选） */
@@ -90,11 +119,18 @@ export const pageMerchantOrders = (params) => request.get('/shop/merchant/order/
 export const completeOrder = (id, pickupCode) =>
   request.post(`/shop/merchant/order/${id}/complete`, null, { params: { pickupCode } })
 
-/* ==================== 图片上传 ==================== */
+/* ==================== 图片/视频上传 ==================== */
 
-/** 上传商城图片（营业执照/商品主图，≤5MB），返回OSS地址 */
+/** 上传商城图片（营业执照/商品主图/评价晒单图，≤5MB），返回OSS地址 */
 export const uploadShopImage = (file) => {
   const formData = new FormData()
   formData.append('file', file)
   return request.post('/shop/file', formData)
+}
+
+/** 上传评价晒单视频（mp4/mov/m4v/webm，≤50MB），返回OSS地址 */
+export const uploadShopVideo = (file) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post('/shop/file/video', formData)
 }

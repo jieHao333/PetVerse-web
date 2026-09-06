@@ -2,7 +2,6 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, ShoppingCart } from '@element-plus/icons-vue'
-import AppHeader from '@/components/AppHeader.vue'
 import { pageProducts } from '@/api/shop'
 
 const router = useRouter()
@@ -55,7 +54,13 @@ const onSizeChange = () => {
   loadProducts()
 }
 
-// 点击商品进入店家页面，浏览该店铺的全部商品
+// 点击商品新标签页打开商品详情页（加购/直接购买/评价均在详情页内完成）
+const openDetail = (item) => {
+  const { href } = router.resolve(`/shop/product/${item.id}`)
+  window.open(href, '_blank')
+}
+
+// 点击店铺名进入店家页面，浏览该店铺的全部商品
 const goStore = (item) => {
   router.push(`/shop/store/${item.merchantId}`)
 }
@@ -63,8 +68,6 @@ const goStore = (item) => {
 
 <template>
   <div class="page">
-    <AppHeader show-nav />
-
     <div class="page-container">
       <el-card shadow="never" class="section">
         <template #header>
@@ -105,7 +108,7 @@ const goStore = (item) => {
             v-for="item in products"
             :key="item.id"
             class="product-card"
-            @click="goStore(item)"
+            @click="openDetail(item)"
           >
             <div class="product-img">
               <el-image :src="item.imageUrl || ''" fit="cover" class="img">
@@ -119,7 +122,7 @@ const goStore = (item) => {
             </div>
             <div class="product-body">
               <div class="product-name">{{ item.name }}</div>
-              <div class="product-shop">{{ item.shopName }}</div>
+              <div class="product-shop" @click.stop="goStore(item)">🏪 {{ item.shopName }}</div>
               <div class="product-bottom">
                 <span class="price">¥{{ item.price }}</span>
                 <span class="stock">库存 {{ item.stock }}</span>
@@ -248,6 +251,10 @@ const goStore = (item) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.product-shop:hover {
+  color: var(--pv-ink);
+  text-decoration: underline;
 }
 .product-bottom {
   margin-top: 10px;

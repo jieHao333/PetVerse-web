@@ -2,25 +2,28 @@ import request from './request'
 import router from '@/router'
 
 /**
- * 宠物 AI 伙伴 · 流式对话（SSE）
+ * AI养宠 · 流式对话（SSE）
  *
  * 为什么不用现有 axios 封装：request.js 有 10s 超时且响应拦截器只解包 JSON Result，
  * 与 text/event-stream 流式响应不兼容；EventSource 又不支持 POST，故用原生 fetch。
  *
  * 响应帧格式（事件之间以空行 \n\n 分隔，每行 data: 开头，可能夹杂以 : 开头的心跳注释行）：
- *   data: {"type":"delta","content":"喵"}  增量内容（多次）
+ *   data: {"type":"meta","sessionId":1}       首帧会话元信息（后端自动新建会话时前端据此绑定）
+ *   data: {"type":"delta","content":"你好"}   增量内容（多次）
  *   data: {"type":"done"}                   正常结束
  *   data: {"type":"error","msg":"..."}      服务端异常
  *
  * @param {Object} options
  * @param {string} options.message 用户消息
- * @param {Object} options.pet 出场宠物画像（id/name/species/breed/age/level/signStreak/description）
+ * @param {Object} options.pet 当前咨询的宠物画像（id/name/species/breed/age 等）
+ * @param {number|string|null} [options.sessionId] 会话 ID；缺省时后端自动新建会话并通过 meta 事件回传
+ * @param {Function} [options.onMeta] 会话元信息回调：({ sessionId }) => void
  * @param {Function} [options.onDelta] 增量回调：(content) => void
  * @param {Function} [options.onDone] 正常结束回调：() => void
  * @param {Function} [options.onError] 异常回调：(msg) => void
  * @returns {{ abort: () => void }} 中断控制器，供「停止生成」按钮调用
  */
-export function chatStream({ message, pet, onDelta, onDone, onError }) {
+export function chatStream({ message, pet, sessionId, onMeta, onDelta, onDone, onError }) {
   const controller = new AbortController()
 
   const run = async () => {
@@ -32,7 +35,11 @@ export function chatStream({ message, pet, onDelta, onDone, onError }) {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ message, pet }),
+        body: JSON.stringify({
+          message,
+          pet,
+          ...(sessionId != null ? { sessionId: Number(sessionId) } : {}),
+        }),
         signal: controller.signal,
       })
 
@@ -97,7 +104,9 @@ export function chatStream({ message, pet, onDelta, onDone, onError }) {
           } catch {
             continue // 非 JSON 数据行，忽略
           }
-          if (evt.type === 'delta') {
+          if (evt.type === 'meta') {
+            onMeta?.({ sessionId: evt.sessionId })
+          } else if (evt.type === 'delta') {
             onDelta?.(evt.content || '')
           } else if (evt.type === 'done') {
             terminated = true
@@ -148,8 +157,14 @@ export function chatStream({ message, pet, onDelta, onDone, onError }) {
   }
 }
 
-/** 查询与指定宠物的历史对话（时间正序），data 为 { petId, messages: [{ role, content, ts }] } */
-export const getChatHistory = (petId) => request.get('/ai/chat/history', { params: { petId } })
+/** 查询指定会话的历史对话（时间正序），data 为 { sessionId, messages: [{ role, content, ts }] } */
+export const getChatHistory = (sessionId) =>
+  request.get('/ai/chat/history', { params: { sessionId } })
 
-/** 清空与指定宠物的历史对话 */
-export const clearChatHistory = (petId) => request.delete('/ai/chat/history', { params: { petId } })
+/** 查询指定宠物的会话列表（最近活跃在前），data 为 { petId, sessions: [{ id, title, createTime, updateTime }] } */
+export const listChatSessions = (petId) =>
+  request.get('/ai/chat/sessions', { params: { petId } })
+
+/** 删除会话（连带会话下全部消息） */
+export const deleteChatSession = (sessionId) =>
+  request.delete(`/ai/chat/sessions/${sessionId}`)

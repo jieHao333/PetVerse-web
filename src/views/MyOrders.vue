@@ -2,7 +2,6 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
-import AppHeader from '@/components/AppHeader.vue'
 import { cancelOrder, pageMyOrders, payOrder } from '@/api/shop'
 
 const router = useRouter()
@@ -151,12 +150,17 @@ const showPickupCode = (order) => {
   pickupOrder.value = order
   pickupDialog.value = true
 }
+
+// 已完成订单开放评价：新标签页打开评价专用页（仅商品描述信息，无购买入口，
+// 发表/修改/删除评价完成后自动关闭该标签页；评价入口仅保留此路径）
+const goReview = (item) => {
+  const { href } = router.resolve(`/shop/product/${item.productId}/review`)
+  window.open(href, '_blank')
+}
 </script>
 
 <template>
   <div class="page">
-    <AppHeader show-nav />
-
     <div class="page-container">
       <el-card shadow="never">
         <template #header>
@@ -203,6 +207,15 @@ const showPickupCode = (order) => {
                 <div class="item-sub">¥{{ item.price }} × {{ item.quantity }}</div>
               </div>
               <div class="item-amount">¥{{ item.amount }}</div>
+              <el-button
+                v-if="order.status === 2"
+                link
+                type="primary"
+                size="small"
+                @click="goReview(item)"
+              >
+                评价
+              </el-button>
             </div>
 
             <div class="order-foot">
@@ -378,6 +391,11 @@ const showPickupCode = (order) => {
 .item-amount {
   color: var(--pv-text);
   font-weight: 500;
+}
+
+/* 已完成订单的评价入口 */
+.order-item .el-button {
+  flex-shrink: 0;
 }
 
 .order-foot {

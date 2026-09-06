@@ -52,10 +52,10 @@ const openMySpaces = () => {
         router
         class="nav-menu"
       >
-        <el-menu-item index="/">我的宠物</el-menu-item>
+        <el-menu-item index="/">首页</el-menu-item>
         <el-menu-item index="/space">圈子</el-menu-item>
         <el-menu-item index="/friends">好友</el-menu-item>
-        <el-menu-item index="/pet-chat">AI 伙伴</el-menu-item>
+        <el-menu-item index="/pet-chat">AI养宠</el-menu-item>
         <el-menu-item index="/shop">宠物商城</el-menu-item>
         <el-menu-item index="/profile">个人资料</el-menu-item>
       </el-menu>
@@ -171,6 +171,8 @@ const openMySpaces = () => {
 }
 .right {
   flex-shrink: 0;
+  /* 无导航菜单的页面（返回页）也将账号下拉推到顶栏最右侧 */
+  margin-left: auto;
 }
 .user-trigger {
   display: flex;

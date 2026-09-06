@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { CircleClose, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
-import AppHeader from '@/components/AppHeader.vue'
 import { deleteSpace, getSpacePage, saveSpace, updateSpace, uploadSpaceMedia } from '@/api/space'
 import { LIKE_TARGET_SPACE, likeTarget, unlikeTarget } from '@/api/remark'
 
@@ -250,8 +249,6 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
 
 <template>
   <div class="page">
-    <AppHeader title="圈子" show-nav />
-
     <div class="page-container">
       <div class="page-head">
         <div>

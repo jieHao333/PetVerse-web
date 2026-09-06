@@ -2,7 +2,6 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Close, Document, Loading, Paperclip, UploadFilled } from '@element-plus/icons-vue'
-import AppHeader from '@/components/AppHeader.vue'
 import { searchUsers } from '@/api/user'
 import {
   acceptFriendRequest,
@@ -423,8 +422,6 @@ onUnmounted(() => {
 
 <template>
   <div class="page">
-    <AppHeader title="好友" show-nav />
-
     <div class="page-container">
       <!-- 添加好友 -->
       <el-card shadow="never" class="section">
