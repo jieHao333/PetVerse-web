@@ -70,7 +70,7 @@ const onSearchSpace = async () => {
 // 时间格式化：2026-08-22T13:58 -> 2026-08-22 13:58
 const formatTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 
-// 媒体九宫格：单张占满一行，两张/四张两列，其余三列（与宠域空间一致）
+// 媒体九宫格：单张占满一行，两张/四张两列，其余三列（与圈子一致）
 const mediaGridClass = (item) => {
   const count = item.mediaList?.length || 0
   if (count === 1) return 'media-grid single'
@@ -165,7 +165,7 @@ onUnmounted(() => {
         </div>
 
         <div v-if="finished && !spaces.length" class="feed-empty pv-panel">
-          {{ keyword || dateRange ? '没有搜索到相关动态' : '还没有发布过动态，去「宠域空间」分享第一个瞬间吧' }}
+          {{ keyword || dateRange ? '没有搜索到相关动态' : '还没有发布过动态，去「圈子」分享第一个瞬间吧' }}
         </div>
 
         <!-- 滚动触底加载哨兵：常驻列表外，搜索重置后观察器无需重建 -->

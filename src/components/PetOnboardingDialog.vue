@@ -93,7 +93,7 @@ const onSubmit = async () => {
   >
     <template #header>
       <div class="ob-header">
-        <span class="ob-logo">🐾</span>
+        <span class="ob-logo-wrap"><img :src="logo" alt="PetVerse" class="ob-logo" /></span>
         <span class="ob-title">{{ dialogTitle }}</span>
       </div>
     </template>
@@ -158,11 +158,8 @@ const onSubmit = async () => {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background: var(--pv-ink);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
+  object-fit: cover;
+  display: block;
 }
 .ob-title {
   font-size: 18px;

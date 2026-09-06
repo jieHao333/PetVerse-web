@@ -1,6 +1,6 @@
 import request from './request'
 
-/** 分页查询宠域空间动态 */
+/** 分页查询圈子动态 */
 export const getSpacePage = (params) => request.get('/space/page', { params })
 
 /** 发布动态（作者身份由后端从登录令牌解析，无需传入用户ID） */

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown, ArrowLeft } from '@element-plus/icons-vue'
+import logo from '@/assets/logo.jpg'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,7 +39,7 @@ const openMySpaces = () => {
       <div class="left">
         <el-button v-if="showBack" text :icon="ArrowLeft" @click="router.back()">返回</el-button>
         <span class="logo">
-          <span class="logo-mark">🐾</span>
+          <img :src="logo" alt="PetVerse" class="logo-mark" />
           <span class="logo-text">{{ title }}</span>
         </span>
       </div>
@@ -52,7 +53,7 @@ const openMySpaces = () => {
         class="nav-menu"
       >
         <el-menu-item index="/">我的宠物</el-menu-item>
-        <el-menu-item index="/space">宠域空间</el-menu-item>
+        <el-menu-item index="/space">圈子</el-menu-item>
         <el-menu-item index="/friends">好友</el-menu-item>
         <el-menu-item index="/pet-chat">AI 伙伴</el-menu-item>
         <el-menu-item index="/shop">宠物商城</el-menu-item>
@@ -129,11 +130,8 @@ const openMySpaces = () => {
   width: 30px;
   height: 30px;
   border-radius: 9px;
-  background: var(--pv-ink);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
+  object-fit: cover;
+  display: block;
 }
 .logo-text {
   font-size: 18px;

@@ -93,6 +93,11 @@ const goComplete = (pet) => {
   router.push(`/pet/profile/${pet.id}`)
 }
 
+// 点击宠物头像前往宠物身份证页
+const goIdentity = (pet) => {
+  router.push(`/pet/identity/${pet.id}`)
+}
+
 onMounted(async () => {
   try {
     const me = await getMe()
@@ -180,7 +185,13 @@ const onSignIn = async () => {
             <div class="group-label">真实宠物（{{ realPets.length }}）</div>
             <div class="pet-list">
               <div v-for="p in realPets" :key="p.id" class="pet-row">
-                <el-avatar :size="56" :src="p.imageUrl || ''" class="row-avatar">
+                <el-avatar
+                  :size="56"
+                  :src="p.imageUrl || ''"
+                  class="row-avatar avatar-link"
+                  title="查看宠物身份证"
+                  @click="goIdentity(p)"
+                >
                   {{ (p.name || '宠')[0] }}
                 </el-avatar>
                 <div class="row-main">
@@ -212,7 +223,13 @@ const onSignIn = async () => {
             <div class="group-label">虚拟宠物（{{ virtualPets.length }}）</div>
             <div class="pet-list">
               <div v-for="p in virtualPets" :key="p.id" class="pet-row">
-                <el-avatar :size="56" :src="p.imageUrl || ''" class="row-avatar">
+                <el-avatar
+                  :size="56"
+                  :src="p.imageUrl || ''"
+                  class="row-avatar avatar-link"
+                  title="查看宠物身份证"
+                  @click="goIdentity(p)"
+                >
                   {{ (p.name || '宠')[0] }}
                 </el-avatar>
                 <div class="row-main">
@@ -401,6 +418,14 @@ const onSignIn = async () => {
   flex-shrink: 0;
   font-size: 20px;
   box-shadow: 0 6px 14px rgba(23, 24, 28, 0.1);
+}
+/* 头像可点击查看宠物身份证 */
+.avatar-link {
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.avatar-link:hover {
+  transform: scale(1.06);
 }
 .row-main {
   flex: 1;

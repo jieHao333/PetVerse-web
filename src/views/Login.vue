@@ -3,6 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Lock, User } from '@element-plus/icons-vue'
 import { login } from '@/api/user'
+import logo from '@/assets/logo.jpg'
 
 const router = useRouter()
 
@@ -40,7 +41,7 @@ const onSubmit = async () => {
   <div class="login-page">
     <div class="login-card">
       <div class="brand">
-        <div class="brand-mark">🐾</div>
+        <img :src="logo" alt="PetVerse" class="brand-mark" />
         <h1>PetVerse</h1>
         <p>登录你的宠物社交空间</p>
       </div>
@@ -110,11 +111,8 @@ const onSubmit = async () => {
   height: 52px;
   margin: 0 auto 16px;
   border-radius: 14px;
-  background: var(--pv-ink);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
+  object-fit: cover;
+  display: block;
 }
 .brand h1 {
   font-size: 25px;

@@ -1,6 +1,6 @@
 import request from './request'
 
-/** 点赞对象类型：0-宠域空间动态（后续评论等在此扩展） */
+/** 点赞对象类型：0-圈子动态（后续评论等在此扩展） */
 export const LIKE_TARGET_SPACE = 0
 
 /** 点赞（幂等，重复点赞返回成功） */

@@ -3,6 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Lock, User } from '@element-plus/icons-vue'
 import { register } from '@/api/user'
+import logo from '@/assets/logo.jpg'
 
 const router = useRouter()
 
@@ -61,7 +62,7 @@ const onSubmit = async () => {
   <div class="register-page">
     <div class="register-card">
       <div class="brand">
-        <div class="brand-mark">🐾</div>
+        <img :src="logo" alt="PetVerse" class="brand-mark" />
         <h1>注册账号</h1>
         <p>开启你的宠物之旅</p>
       </div>
@@ -137,11 +138,8 @@ const onSubmit = async () => {
   height: 52px;
   margin: 0 auto 16px;
   border-radius: 14px;
-  background: var(--pv-ink);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
+  object-fit: cover;
+  display: block;
 }
 .brand h1 {
   font-size: 24px;

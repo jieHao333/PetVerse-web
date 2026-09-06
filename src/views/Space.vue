@@ -250,12 +250,12 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
 
 <template>
   <div class="page">
-    <AppHeader title="宠域空间" show-nav />
+    <AppHeader title="圈子" show-nav />
 
     <div class="page-container">
       <div class="page-head">
         <div>
-          <h2 class="page-title">宠域空间</h2>
+          <h2 class="page-title">圈子</h2>
           <p class="page-desc">看看大家与宠物在一起的每个瞬间 · 发布新动态可为宠物 +10 经验</p>
         </div>
         <el-button type="primary" size="large" :icon="Plus" @click="openCreate">发布动态</el-button>
