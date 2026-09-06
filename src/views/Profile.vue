@@ -139,15 +139,7 @@ const onSavePassword = async () => {
 
           <div v-if="pets.length" class="pet-list">
             <div v-for="p in pets" :key="p.id" class="pet-row">
-              <el-avatar
-                :size="44"
-                :src="p.imageUrl || ''"
-                class="avatar-link"
-                title="查看宠物身份证"
-                @click="router.push(`/pet/identity/${p.id}`)"
-              >
-                {{ (p.name || '宠')[0] }}
-              </el-avatar>
+              <el-avatar :size="44" :src="p.imageUrl || ''">{{ (p.name || '宠')[0] }}</el-avatar>
               <div class="pet-row-info">
                 <div class="pet-row-name">
                   {{ p.name }}
@@ -413,15 +405,6 @@ const onSavePassword = async () => {
   font-size: 12px;
   color: var(--pv-text-secondary);
   margin-top: 2px;
-}
-/* 头像可点击查看宠物身份证 */
-.avatar-link {
-  cursor: pointer;
-  transition: transform 0.15s ease;
-  flex-shrink: 0;
-}
-.avatar-link:hover {
-  transform: scale(1.06);
 }
 .adopt-btn {
   align-self: flex-start;
