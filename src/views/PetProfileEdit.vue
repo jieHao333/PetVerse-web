@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
-import { getPetById, updatePetProfile } from '@/api/pet'
+import { getPetById, updatePetProfile, uploadPetAvatar } from '@/api/pet'
 import { PET_SPECIES, getBreedsBySpecies } from '@/data/petOptions'
 
 const route = useRoute()
@@ -43,6 +43,23 @@ const breedOptions = computed(() => {
 const onSpeciesChange = () => {
   if (form.breed && !getBreedsBySpecies(form.species).includes(form.breed)) {
     form.breed = ''
+  }
+}
+
+// 宠物头像上传状态：选中图片后立即上传 OSS 并更新展示
+const uploadingAvatar = ref(false)
+
+const onUploadAvatar = async ({ file }) => {
+  if (uploadingAvatar.value) return
+  uploadingAvatar.value = true
+  try {
+    const data = await uploadPetAvatar(route.params.id, file)
+    pet.value = { ...pet.value, ...data }
+    ElMessage.success('头像已更新')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    uploadingAvatar.value = false
   }
 }
 
@@ -98,6 +115,20 @@ const onSubmit = async () => {
         <template #header>
           <span class="card-title">{{ pet?.name || '宠物' }} 的档案</span>
         </template>
+
+        <div class="avatar-block">
+          <el-upload
+            class="avatar-uploader"
+            :show-file-list="false"
+            accept="image/png,image/jpeg,image/jpg,image/webp"
+            :http-request="onUploadAvatar"
+          >
+            <el-avatar :size="80" :src="pet?.imageUrl || ''">
+              {{ (pet?.name || '宠')[0] }}
+            </el-avatar>
+            <div class="avatar-tip">{{ uploadingAvatar ? '上传中...' : '点击更换头像' }}</div>
+          </el-upload>
+        </div>
 
         <el-form :model="form" label-width="90px" size="large" class="profile-form">
           <el-form-item label="宠物名称">
@@ -197,5 +228,26 @@ const onSubmit = async () => {
 }
 .profile-form {
   margin-top: 8px;
+}
+/* 宠物头像上传：居中展示，悬停提示可点击更换 */
+.avatar-block {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+.avatar-uploader {
+  cursor: pointer;
+  text-align: center;
+}
+.avatar-uploader:hover .el-avatar {
+  opacity: 0.85;
+}
+.avatar-uploader :deep(.el-upload) {
+  display: block;
+}
+.avatar-tip {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  margin-top: 6px;
 }
 </style>

@@ -22,6 +22,7 @@ const router = createRouter({
         { path: 'shop/cart', name: 'shopCart', component: () => import('@/views/Cart.vue') },
         { path: 'shop/orders', name: 'shopOrders', component: () => import('@/views/MyOrders.vue') },
         { path: 'profile', name: 'profile', component: () => import('@/views/Profile.vue') },
+        { path: 'notifications', name: 'notifications', component: () => import('@/views/Notifications.vue') },
         { path: 'user/:id', name: 'userProfile', component: () => import('@/views/UserProfile.vue') },
       ],
     },

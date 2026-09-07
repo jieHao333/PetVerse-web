@@ -33,3 +33,12 @@ export const uploadChatFile = (file) => {
 
 /** 查询与某好友的最近聊天记录 */
 export const getMessages = (friendUserId) => request.get('/social/chat/messages', { params: { friendUserId } })
+
+/** 查询我的消息（会话）列表 */
+export const getConversations = () => request.get('/social/chat/conversations')
+
+/** 标记与某好友的会话为已读（进入聊天时清零未读角标） */
+export const markChatRead = (friendUserId) => request.post('/social/chat/read', null, { params: { friendUserId } })
+
+/** 删除（清空）与某好友的会话 */
+export const deleteConversation = (friendUserId) => request.delete('/social/chat/conversation', { params: { friendUserId } })

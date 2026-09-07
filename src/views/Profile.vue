@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getMe, updateUser, uploadAvatar } from '@/api/user'
 import { listMyPets, renamePet } from '@/api/pet'
+import { DEFAULT_AVATAR } from '@/utils/avatar'
 
 const router = useRouter()
 
@@ -187,7 +188,7 @@ const onSavePassword = async () => {
             :http-request="onUploadAvatar"
           >
             <div class="avatar-ring">
-              <el-avatar :size="80" :src="profileForm.avatar || ''">
+              <el-avatar :size="80" :src="profileForm.avatar || DEFAULT_AVATAR">
                 {{ (profileForm.nickname || user?.username || 'U')[0].toUpperCase() }}
               </el-avatar>
             </div>

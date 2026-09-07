@@ -2,6 +2,7 @@
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { getSpacePage } from '@/api/space'
+import { DEFAULT_AVATAR } from '@/utils/avatar'
 
 const me = JSON.parse(localStorage.getItem('user') || 'null')
 
@@ -125,7 +126,7 @@ onUnmounted(() => {
       <div class="feed-list">
         <div v-for="item in spaces" :key="item.id" class="feed-card pv-panel">
           <div class="feed-head">
-            <el-avatar :size="40" :src="item.authorAvatar || me?.avatar || ''" class="feed-avatar">
+            <el-avatar :size="40" :src="item.authorAvatar || me?.avatar || DEFAULT_AVATAR" class="feed-avatar">
               {{ (item.authorNickname || me?.nickname || me?.username || 'U')[0]?.toUpperCase() }}
             </el-avatar>
             <div class="feed-meta">

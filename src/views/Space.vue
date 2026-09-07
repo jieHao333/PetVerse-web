@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { CircleClose, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import { deleteSpace, getSpacePage, saveSpace, updateSpace, uploadSpaceMedia } from '@/api/space'
+import { DEFAULT_AVATAR } from '@/utils/avatar'
 import {
   COMMENT_TARGET_SPACE,
   LIKE_TARGET_SPACE,
@@ -460,7 +461,7 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
       <div v-loading="loading" class="feed-list">
         <div v-for="item in spaces" :key="item.id" class="feed-card pv-panel">
           <div class="feed-head">
-            <el-avatar :size="40" :src="item.authorAvatar || ''" class="feed-avatar">
+            <el-avatar :size="40" :src="item.authorAvatar || DEFAULT_AVATAR" class="feed-avatar">
               {{ (item.authorNickname || item.authorUsername || 'U')[0]?.toUpperCase() }}
             </el-avatar>
             <div class="feed-meta">
@@ -523,7 +524,7 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
           <div v-if="commentOf(item.id).open" class="comment-section">
             <div v-loading="commentOf(item.id).loading" class="comment-list">
               <div v-for="c in commentOf(item.id).list" :key="c.id" class="comment-item">
-                <el-avatar :size="28" :src="c.userAvatar || ''" class="comment-avatar">
+                <el-avatar :size="28" :src="c.userAvatar || DEFAULT_AVATAR" class="comment-avatar">
                   {{ (c.userNickname || '宠').slice(0, 1) }}
                 </el-avatar>
                 <div class="comment-body">

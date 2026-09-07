@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { DEFAULT_AVATAR } from '@/utils/avatar'
 import {
   deleteProductReview,
   deleteReviewReply,
@@ -423,7 +424,7 @@ onMounted(loadReviews)
                 <div v-if="replyOf(item.reviewId).open" class="reply-section">
                   <div v-loading="replyOf(item.reviewId).loading" class="reply-list">
                     <div v-for="reply in replyOf(item.reviewId).list" :key="reply.id" class="reply-item">
-                      <el-avatar :size="28" :src="reply.userAvatar || ''" class="reply-avatar">
+                      <el-avatar :size="28" :src="reply.userAvatar || DEFAULT_AVATAR" class="reply-avatar">
                         {{ (reply.userNickname || '宠').slice(0, 1) }}
                       </el-avatar>
                       <div class="reply-body">

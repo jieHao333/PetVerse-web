@@ -30,6 +30,15 @@ export const updatePetProfile = (data) => request.put('/pet/profile', data)
 /** 修改宠物名称（按宠物ID），返回更新后的宠物信息 */
 export const renamePet = (petId, name) => request.put('/pet/rename', { petId, name })
 
+/** 上传宠物头像（真实/虚拟宠物均可，≤2MB，PNG/JPEG/WEBP），返回更新后的宠物信息 */
+export const uploadPetAvatar = (petId, file) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post(`/pet/${petId}/avatar`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
 /** 删除宠物（仅本人宠物，逻辑删除），id 以字符串传递避免精度丢失 */
 export const deletePet = (id) => request.delete(`/pet/${id}`)
 

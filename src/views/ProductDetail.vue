@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ShoppingCart } from '@element-plus/icons-vue'
 import { addCartItem, buyNowOrder, deleteReviewReply, getProductDetail, getReviewSummary, pageProductReviews, pageReviewReplies, payOrder, saveReviewReply } from '@/api/shop'
+import { DEFAULT_AVATAR } from '@/utils/avatar'
 
 const route = useRoute()
 const router = useRouter()
@@ -407,7 +408,7 @@ onMounted(() => {
 
             <div v-loading="reviewLoading" class="review-list">
               <div v-for="item in reviews" :key="item.id" class="review-item">
-                <el-avatar :size="40" :src="item.userAvatar || ''" class="review-avatar">
+                <el-avatar :size="40" :src="item.userAvatar || DEFAULT_AVATAR" class="review-avatar">
                   {{ (item.userNickname || '宠').slice(0, 1) }}
                 </el-avatar>
                 <div class="review-body">
@@ -457,7 +458,7 @@ onMounted(() => {
                   <div v-if="replyOf(item.id).open" class="reply-section">
                     <div v-loading="replyOf(item.id).loading" class="reply-list">
                       <div v-for="reply in replyOf(item.id).list" :key="reply.id" class="reply-item">
-                        <el-avatar :size="28" :src="reply.userAvatar || ''" class="reply-avatar">
+                        <el-avatar :size="28" :src="reply.userAvatar || DEFAULT_AVATAR" class="reply-avatar">
                           {{ (reply.userNickname || '宠').slice(0, 1) }}
                         </el-avatar>
                         <div class="reply-body">

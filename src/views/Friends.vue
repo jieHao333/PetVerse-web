@@ -5,17 +5,21 @@ import { Close, Document, Loading, Paperclip, UploadFilled } from '@element-plus
 import { searchUsers } from '@/api/user'
 import {
   acceptFriendRequest,
+  deleteConversation,
+  getConversations,
   getFriends,
   getMessages,
   getReceivedRequests,
+  markChatRead,
   rejectFriendRequest,
   removeFriend,
   sendMessage,
   sendFriendRequest,
   uploadChatFile,
 } from '@/api/social'
+import { DEFAULT_AVATAR } from '@/utils/avatar'
 
-const activeTab = ref('friends')
+const activeTab = ref('messages')
 
 const router = useRouter()
 
@@ -24,11 +28,32 @@ const gotoProfile = (userId) => {
   if (userId) router.push(`/user/${userId}`)
 }
 
+// 判断搜索结果中的用户是否已是好友（ID 统一转字符串比较，避免类型不一致漏判）
+const isFriendAlready = (user) =>
+  friends.value.some((f) => String(f.userId) === String(user.id))
+
+// 把搜索结果适配为好友结构，复用好友列表的聊天/删除交互
+const asFriend = (user) => ({
+  userId: user.id,
+  username: user.username,
+  nickname: user.nickname,
+  avatar: user.avatar,
+})
+
 // 好友与申请数据
 const friends = ref([])
 const requests = ref([])
 const loadingFriends = ref(false)
 const loadingRequests = ref(false)
+
+// 消息（会话）列表数据
+const conversations = ref([])
+const loadingConversations = ref(false)
+
+// 未读消息总数（消息页签角标）
+const totalUnread = computed(() =>
+  conversations.value.reduce((sum, c) => sum + (Number(c.unreadCount) || 0), 0),
+)
 
 // 待处理申请数量（页签角标）
 const pendingCount = computed(() => requests.value.filter((r) => r.status === 0).length)
@@ -53,10 +78,10 @@ const myId = computed(() => JSON.parse(localStorage.getItem('user') || 'null')?.
 
 // 本人头像（本地登录信息）
 const myUser = computed(() => JSON.parse(localStorage.getItem('user') || 'null'))
-const myAvatar = computed(() => myUser.value?.avatar || '')
+const myAvatar = computed(() => myUser.value?.avatar || DEFAULT_AVATAR)
 const myName = computed(() => myUser.value?.nickname || myUser.value?.username || 'U')
 // 对方头像（好友列表 8 秒轮询，头像变更会自动同步）
-const friendAvatar = computed(() => chatFriend.value?.avatar || '')
+const friendAvatar = computed(() => chatFriend.value?.avatar || DEFAULT_AVATAR)
 
 // 后端 Long 序列化为字符串，与本地缓存的 id 统一转字符串比较，避免类型不一致导致误判
 const isMine = (msg) => String(msg.senderId) === String(myId.value)
@@ -118,13 +143,70 @@ const loadRequests = async (silent = false) => {
   }
 }
 
+const loadConversations = async (silent = false) => {
+  loadingConversations.value = !silent
+  try {
+    conversations.value = await getConversations()
+  } catch (e) {
+    if (!silent) ElMessage.error(e.message)
+  } finally {
+    loadingConversations.value = false
+  }
+}
+
+// 会话预览文案：图片/视频/文件按类型占位，文本直接展示内容
+const conversationPreview = (conv) => {
+  if (conv.lastMsgType === 1) return '[图片]'
+  if (conv.lastMsgType === 2) {
+    return isVideo(conv.lastContent) ? '[视频]' : '[文件]'
+  }
+  return conv.lastContent || ''
+}
+
+// 会话时间展示：今天显示时分，今年显示月日，更早显示完整日期
+const formatConvTime = (t) => {
+  const date = parseTime(t)
+  if (!date) return ''
+  const now = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  if (date.toDateString() === now.toDateString()) {
+    return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  }
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${pad(date.getMonth() + 1)}月${pad(date.getDate())}日`
+  }
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}`
+}
+
+// 删除（清空）会话：仅从消息列表移除，好友关系保留，好友列表可重新“聊一聊”
+const onDeleteConversation = async (conv) => {
+  try {
+    await ElMessageBox.confirm('确定删除该条会话吗？删除后仅从消息列表移除，不影响好友关系。', '删除会话', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  try {
+    await deleteConversation(conv.friendUserId)
+    ElMessage.success('已删除会话')
+    loadConversations(true)
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
+}
+
 // 定时轮询好友与申请列表，对方新发起的申请无需刷新页面即可看到
 let listTimer = null
 
 onMounted(() => {
+  loadConversations()
   loadFriends()
   loadRequests()
   listTimer = setInterval(() => {
+    loadConversations(true)
     loadFriends(true)
     loadRequests(true)
   }, 8000)
@@ -210,13 +292,24 @@ let lastMsgKey = ''
 // 是否贴底：用户翻看历史（未贴底）时，新消息到达不强制拉回底部
 let stickBottom = true
 
-// 聊天：打开弹窗并开始轮询新消息；重置指纹确保首屏完整加载
+// 点击会话项：把会话数据适配为 openChat 需要的好友结构后打开聊天
+const openConversation = (conv) => {
+  openChat({
+    userId: conv.friendUserId,
+    username: conv.username,
+    nickname: conv.nickname,
+    avatar: conv.avatar,
+  })
+}
+
+// 聊天：打开弹窗并开始轮询新消息；重置指纹确保首屏完整加载；进入即标记已读、清零角标
 const openChat = async (friend) => {
   chatFriend.value = friend
   chatDialog.value = true
   lastMsgKey = ''
   stickBottom = true
   await refreshMessages(true)
+  markConversationRead(friend.userId)
   chatTimer = setInterval(() => refreshMessages(false), 3000)
 }
 
@@ -225,11 +318,23 @@ const closeChat = () => {
     clearInterval(chatTimer)
     chatTimer = null
   }
+  // 关闭聊天时将本次会话期间新收到的消息一并标为已读
+  if (chatFriend.value) markConversationRead(chatFriend.value.userId)
   chatFriend.value = null
   messages.value = []
   draft.value = ''
   lastMsgKey = ''
   dragDepth.value = 0
+}
+
+// 标记已读：失败静默，避免打扰聊天；成功后刷新消息列表角标
+const markConversationRead = async (friendUserId) => {
+  try {
+    await markChatRead(friendUserId)
+    loadConversations(true)
+  } catch {
+    /* 忽略已读标记失败 */
+  }
 }
 
 // 滚动时更新贴底状态，距底部 60px 内视为贴底
@@ -445,15 +550,19 @@ onUnmounted(() => {
         <div v-if="searched" class="search-results">
           <p v-if="!results.length" class="empty-tip">没有找到匹配的用户</p>
           <div v-for="user in results" :key="user.id" class="user-item">
-            <el-avatar :size="44" :src="user.avatar || ''">
+            <el-avatar :size="44" :src="user.avatar || DEFAULT_AVATAR">
               {{ (user.nickname || user.username || 'U')[0].toUpperCase() }}
             </el-avatar>
             <div class="user-info">
               <div class="user-name name-link" @click="gotoProfile(user.id)">{{ displayName(user) }}</div>
               <div class="user-account">账号: {{ user.username }}</div>
             </div>
+            <div v-if="isFriendAlready(user)" class="item-actions">
+              <el-button type="primary" size="small" round @click="openChat(asFriend(user))">聊一聊</el-button>
+              <el-button size="small" round class="danger-btn" @click="onRemove(asFriend(user))">删除</el-button>
+            </div>
             <el-button
-              v-if="user.applied"
+              v-else-if="user.applied"
               disabled
               size="small"
               round
@@ -477,13 +586,58 @@ onUnmounted(() => {
       <!-- 好友列表 / 好友申请 -->
       <el-card shadow="never" class="section">
         <el-tabs v-model="activeTab">
+          <el-tab-pane name="messages">
+            <template #label>
+              <el-badge :value="totalUnread" :hidden="!totalUnread" :max="99">
+                消息
+              </el-badge>
+            </template>
+            <div v-loading="loadingConversations" class="list-body">
+              <p v-if="!conversations.length" class="empty-tip">
+                还没有消息记录，去“我的好友”里找好友聊一聊吧
+              </p>
+              <div
+                v-for="conv in conversations"
+                :key="conv.friendUserId"
+                class="user-item conv-item"
+                @click="openConversation(conv)"
+              >
+                <el-badge
+                  :value="Number(conv.unreadCount) || 0"
+                  :hidden="!(Number(conv.unreadCount) > 0)"
+                  :max="99"
+                  class="conv-avatar-badge"
+                >
+                  <el-avatar :size="44" :src="conv.avatar || DEFAULT_AVATAR">
+                    {{ (conv.nickname || conv.username || 'U')[0].toUpperCase() }}
+                  </el-avatar>
+                </el-badge>
+                <div class="user-info">
+                  <div class="user-name">{{ displayName(conv) }}</div>
+                  <div class="conv-preview">{{ conversationPreview(conv) }}</div>
+                </div>
+                <div class="conv-meta">
+                  <span class="conv-time">{{ formatConvTime(conv.lastTime) }}</span>
+                  <el-button
+                    text
+                    size="small"
+                    class="danger-btn conv-del"
+                    @click.stop="onDeleteConversation(conv)"
+                  >
+                    删除
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+
           <el-tab-pane label="我的好友" name="friends">
             <div v-loading="loadingFriends" class="list-body">
               <p v-if="!friends.length" class="empty-tip">
                 还没有好友，去上面搜索添加吧
               </p>
               <div v-for="friend in friends" :key="friend.userId" class="user-item">
-                <el-avatar :size="44" :src="friend.avatar || ''">
+                <el-avatar :size="44" :src="friend.avatar || DEFAULT_AVATAR">
                   {{ (friend.nickname || friend.username || 'U')[0].toUpperCase() }}
                 </el-avatar>
                 <div class="user-info">
@@ -491,7 +645,7 @@ onUnmounted(() => {
                   <div class="user-account">账号: {{ friend.username }}</div>
                 </div>
                 <div class="item-actions">
-                  <el-button type="primary" size="small" round @click="openChat(friend)">聊天</el-button>
+                  <el-button type="primary" size="small" round @click="openChat(friend)">聊一聊</el-button>
                   <el-button size="small" round class="danger-btn" @click="onRemove(friend)">删除</el-button>
                 </div>
               </div>
@@ -507,7 +661,7 @@ onUnmounted(() => {
             <div v-loading="loadingRequests" class="list-body">
               <p v-if="!requests.length" class="empty-tip">暂无好友申请</p>
               <div v-for="req in requests" :key="req.id" class="user-item">
-                <el-avatar :size="44" :src="req.fromAvatar || ''">
+                <el-avatar :size="44" :src="req.fromAvatar || DEFAULT_AVATAR">
                   {{ (req.fromNickname || req.fromUsername || 'U')[0].toUpperCase() }}
                 </el-avatar>
                 <div class="user-info">
@@ -767,6 +921,40 @@ onUnmounted(() => {
 .list-body {
   min-height: 100px;
   padding-top: 8px;
+}
+
+/* 消息（会话）列表项 */
+.conv-item {
+  cursor: pointer;
+}
+.conv-avatar-badge :deep(.el-badge__content) {
+  border: none;
+}
+.conv-preview {
+  font-size: 13px;
+  color: var(--pv-text-secondary);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.conv-time {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+}
+.conv-del {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.conv-item:hover .conv-del {
+  opacity: 1;
 }
 .empty-tip {
   color: var(--pv-text-secondary);

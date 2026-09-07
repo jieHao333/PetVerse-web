@@ -5,6 +5,7 @@ import { Search } from '@element-plus/icons-vue'
 import { getUserById } from '@/api/user'
 import { getPetByUserId } from '@/api/pet'
 import { getSpacePage } from '@/api/space'
+import { DEFAULT_AVATAR } from '@/utils/avatar'
 
 const route = useRoute()
 const router = useRouter()
@@ -126,7 +127,7 @@ onUnmounted(() => {
           </template>
           <div v-if="user" class="up-head">
             <div class="avatar-ring">
-              <el-avatar :size="80" :src="user.avatar || ''">
+              <el-avatar :size="80" :src="user.avatar || DEFAULT_AVATAR">
                 {{ (user.nickname || user.username || 'U')[0].toUpperCase() }}
               </el-avatar>
             </div>
