@@ -71,6 +71,11 @@ const loadPets = async () => {
   pets.value = await listMyPets()
 }
 
+// 点击宠物头像：新标签页打开该宠物的身份证详情页
+const openIdentity = (pet) => {
+  window.open(router.resolve(`/pet/identity/${pet.id}`).href, '_blank')
+}
+
 onMounted(async () => {
   try {
     user.value = await getMe()
@@ -137,7 +142,13 @@ const onSavePassword = async () => {
 
           <div v-if="pets.length" class="pet-list">
             <div v-for="p in pets" :key="p.id" class="pet-row">
-              <el-avatar :size="44" :src="p.imageUrl || ''">{{ (p.name || '宠')[0] }}</el-avatar>
+              <el-avatar
+                :size="44"
+                :src="p.imageUrl || ''"
+                class="pet-avatar-link"
+                title="点击查看宠物身份证"
+                @click="openIdentity(p)"
+              >{{ (p.name || '宠')[0] }}</el-avatar>
               <div class="pet-row-info">
                 <div class="pet-row-name">
                   {{ p.name }}
@@ -386,6 +397,15 @@ const onSavePassword = async () => {
 .pet-row-info {
   flex: 1;
   min-width: 0;
+}
+/* 宠物头像：可点击新标签打开身份卡，悬停轻微放大 */
+.pet-avatar-link {
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.pet-avatar-link:hover {
+  transform: scale(1.08);
 }
 .pet-row-name {
   display: flex;

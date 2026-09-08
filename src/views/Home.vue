@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import PetDeleteDialog from '@/components/PetDeleteDialog.vue'
 import { getMe } from '@/api/user'
-import { listMyPets, renamePet, signIn, uploadPetAvatar } from '@/api/pet'
+import { listMyPets, renamePet, signIn } from '@/api/pet'
 
 const router = useRouter()
 
@@ -71,32 +71,9 @@ const onRename = async () => {
   }
 }
 
-// 宠物头像上传：点击宠物行头像选择图片，成功后即时更新展示（真实/虚拟宠物均支持）
-const avatarInput = ref(null)
-const avatarTarget = ref(null)
-const uploadingAvatarId = ref(null)
-
-const triggerAvatarUpload = (pet) => {
-  avatarTarget.value = pet
-  avatarInput.value?.click()
-}
-
-const onAvatarPicked = async (e) => {
-  const file = e.target.files?.[0]
-  e.target.value = ''
-  const pet = avatarTarget.value
-  if (!file || !pet || uploadingAvatarId.value) return
-  uploadingAvatarId.value = pet.id
-  try {
-    const updated = await uploadPetAvatar(pet.id, file)
-    const idx = pets.value.findIndex((p) => p.id === updated.id)
-    if (idx > -1) pets.value[idx] = updated
-    ElMessage.success('头像已更新')
-  } catch (err) {
-    ElMessage.error(err.message)
-  } finally {
-    uploadingAvatarId.value = null
-  }
+// 点击宠物头像：新标签页打开该宠物的身份证详情页（切换头像在身份卡页内完成）
+const openIdentity = (pet) => {
+  window.open(router.resolve(`/pet/identity/${pet.id}`).href, '_blank')
 }
 
 // 虚拟宠物升级进度百分比，满级或无升级需求时为 100%
@@ -205,11 +182,11 @@ const onSignIn = async () => {
             <div class="group-label">真实宠物（{{ realPets.length }}）</div>
             <div class="pet-list">
               <div v-for="p in realPets" :key="p.id" class="pet-row">
-                <div class="row-avatar-wrap" title="点击更换头像" @click="triggerAvatarUpload(p)">
+                <div class="row-avatar-wrap" title="点击查看宠物身份证" @click="openIdentity(p)">
                   <el-avatar :size="56" :src="p.imageUrl || ''" class="row-avatar">
                     {{ (p.name || '宠')[0] }}
                   </el-avatar>
-                  <div class="avatar-mask">{{ uploadingAvatarId === p.id ? '上传中' : '更换' }}</div>
+                  <div class="avatar-mask">身份卡</div>
                 </div>
                 <div class="row-main">
                   <div class="row-name-line">
@@ -240,11 +217,11 @@ const onSignIn = async () => {
             <div class="group-label">虚拟宠物（{{ virtualPets.length }}）</div>
             <div class="pet-list">
               <div v-for="p in virtualPets" :key="p.id" class="pet-row">
-                <div class="row-avatar-wrap" title="点击更换头像" @click="triggerAvatarUpload(p)">
+                <div class="row-avatar-wrap" title="点击查看宠物身份证" @click="openIdentity(p)">
                   <el-avatar :size="56" :src="p.imageUrl || ''" class="row-avatar">
                     {{ (p.name || '宠')[0] }}
                   </el-avatar>
-                  <div class="avatar-mask">{{ uploadingAvatarId === p.id ? '上传中' : '更换' }}</div>
+                  <div class="avatar-mask">身份卡</div>
                 </div>
                 <div class="row-main">
                   <div class="row-name-line">
@@ -311,14 +288,6 @@ const onSignIn = async () => {
     <!-- 删除宠物确认弹窗：需逐字输入指定文案方可删除 -->
     <PetDeleteDialog v-model="deleteDialog" :pet="deleteTarget" @deleted="onDeleted" />
 
-    <!-- 宠物头像选择器（隐藏，由点击头像触发） -->
-    <input
-      ref="avatarInput"
-      type="file"
-      accept="image/png,image/jpeg,image/jpg,image/webp"
-      class="avatar-input-hidden"
-      @change="onAvatarPicked"
-    />
   </div>
 </template>
 
@@ -464,9 +433,6 @@ const onSignIn = async () => {
 }
 .row-avatar-wrap:hover .avatar-mask {
   opacity: 1;
-}
-.avatar-input-hidden {
-  display: none;
 }
 .row-main {
   flex: 1;

@@ -39,6 +39,13 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // 宠物身份证页：可选 ID，未指定时展示首只已签发身份卡的宠物
+      path: '/pet/identity/:id?',
+      name: 'petIdentity',
+      component: () => import('@/views/PetIdentity.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/my-spaces',
       name: 'mySpaces',
       component: () => import('@/views/MySpaces.vue'),

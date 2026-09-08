@@ -43,9 +43,9 @@ const petLine = (p) => {
 }
 
 // ---------- 页面状态 ----------
-const pets = ref([]) // 当前用户的全部宠物（侧栏切换用）
+const pets = ref([]) // 当前用户的全部宠物（切换咨询对象用）
 const pet = ref(null) // 当前选中宠物
-const sessions = ref([]) // 当前宠物的会话列表（最近活跃在前）
+const sessions = ref([]) // 会话列表（用户与所有宠物的历史会话统一展示，最近活跃在前，每条带归属 petId）
 const currentSessionId = ref(null) // 当前会话 ID；null 表示待创建的新会话
 const loadingPet = ref(true) // 宠物信息加载中
 const loadingSessions = ref(false) // 会话列表加载中
@@ -60,6 +60,13 @@ let streamCtrl = null // 当前流式请求控制器（{ abort }）
 // 宠物激活态比较键：宠物 ID 为雪花 ID（后端 Long 序列化为字符串），用字符串比较避免 Number() 精度丢失
 const petKey = (p) => (p == null ? null : String(p.id))
 const isPetActive = (p) => petKey(p) === petKey(pet.value)
+// 按 petId 解析消息归属的宠物对象（petId 为 0 / null 或宠物已删除时返回 null）
+const petById = (id) => {
+  if (id == null || !Number(id)) return null
+  return pets.value.find((p) => petKey(p) === String(id)) || null
+}
+// 消息展示用的宠物：优先按消息归属的 petId 回溯，找不到时回退当前选中宠物
+const msgPet = (msg) => petById(msg.petId) || pet.value
 // 会话激活态比较键：会话 ID 为 MySQL 自增小整数，转数字比较安全
 const isSessionActive = (s) => currentSessionId.value != null && Number(s.id) === Number(currentSessionId.value)
 
@@ -77,12 +84,11 @@ const finishStream = () => {
 }
 
 // ---------- 会话与历史 ----------
-// 刷新当前宠物的会话列表
+// 刷新会话列表（用户与所有宠物的历史会话统一展示，无需先选宠物）
 const refreshSessions = async () => {
-  if (!pet.value) return
   loadingSessions.value = true
   try {
-    const data = await listChatSessions(pet.value.id)
+    const data = await listChatSessions()
     sessions.value = data?.sessions || []
   } catch (e) {
     ElMessage.error(e.message)
@@ -105,6 +111,7 @@ const loadHistory = async (sessionId) => {
     messages.value = (data?.messages || []).map((m) => ({
       role: m.role,
       content: m.content,
+      petId: m.petId || null,
       ts: m.ts,
     }))
     scrollToBottom()
@@ -129,8 +136,10 @@ onMounted(async () => {
     pet.value = target
     if (target) {
       await refreshSessions()
-      // 进页面默认打开该宠物最近活跃的会话；没有会话则展示空咨询页
+      // 进页面默认打开最近活跃的会话（可能属于任意宠物）：同步选中其归属宠物；无会话则展示空咨询页
       if (sessions.value.length) {
+        const owner = petById(sessions.value[0].petId)
+        if (owner) pet.value = owner
         currentSessionId.value = Number(sessions.value[0].id)
         await loadHistory(currentSessionId.value)
       }
@@ -148,24 +157,26 @@ onUnmounted(() => {
 })
 
 // ---------- 宠物切换 / 会话管理 ----------
-// 切换宠物：默认进入“新对话”待创建态（懒创建），想回到历史咨询需在侧栏手动选择。
+// 切换宠物：会话仍按「用户 + 宠物」隔离，切换后进入该宠物的新对话待创建态（懒创建），
 // 不立即调建会话接口——否则频繁切换会不断产生空的历史会话记录；
-// 真正的会话在用户发出首条消息时由后端自动创建并通过 meta 事件回传（与「新会话」按钮一致）。
-const switchPet = async (p) => {
+// 真正的会话在用户发出首条消息时由后端按当前宠物自动创建并通过 meta 事件回传。
+// 历史会话无需先选宠物：侧栏统一展示与所有宠物的历史对话，点选即回到对应会话。
+const switchPet = (p) => {
   if (!p || isPetActive(p)) return
-  // 切换前中断进行中的流式生成，避免回复落入已切走的会话画面
+  // 切换前中断进行中的流式生成，避免回复落入已切走的宠物会话画面
   if (sending.value) handleStop()
   pet.value = p
   currentSessionId.value = null
   messages.value = []
-  // 刷新侧栏为新宠物的历史会话列表，供用户手动选择回到过往咨询
-  await refreshSessions()
 }
 
-// 手动选择历史会话
+// 手动选择历史会话：统一列表跨宠物展示，选中时同步当前宠物为该会话的归属宠物，
+// 保证顶部信息与后续提问的咨询上下文一致
 const selectSession = async (s) => {
   if (isSessionActive(s)) return
   if (sending.value) handleStop()
+  const owner = petById(s.petId)
+  if (owner) pet.value = owner
   currentSessionId.value = Number(s.id)
   messages.value = []
   await loadHistory(currentSessionId.value)
@@ -173,7 +184,6 @@ const selectSession = async (s) => {
 
 // 新建会话：先置为待创建态，首条消息发送时由后端创建并通过 meta 回传会话 ID
 const newSession = () => {
-  if (!pet.value) return
   if (sending.value) handleStop()
   currentSessionId.value = null
   messages.value = []
@@ -207,8 +217,8 @@ const handleSend = () => {
   // 生成中不允许再次发送
   if (!text || sending.value || !pet.value) return
 
-  // 用户消息立即上屏（乐观渲染），并写入本地会话状态数组
-  messages.value.push({ role: 'user', content: text, ts: nowSec() })
+  // 用户消息立即上屏（乐观渲染），并写入本地会话状态数组；petId 用于回显本轮咨询的宠物
+  messages.value.push({ role: 'user', content: text, petId: pet.value.id, ts: nowSec() })
   inputText.value = ''
   // 顾问侧先出现「思考中」占位气泡，首个 delta 到达后替换为流式文本
   messages.value.push({ role: 'assistant', content: '', thinking: true, ts: nowSec() })
@@ -225,6 +235,19 @@ const handleSend = () => {
     level: pet.value.level,
     signStreak: pet.value.signStreak,
     description: pet.value.description,
+    // 健康信息（猫/狗身份卡维护）随咨询上下文一并发送，供顾问给出针对性建议；
+    // 未填写的字段为 null / 空串，过滤掉后再发送，避免后端参数校验失败
+    health: Object.fromEntries(
+      Object.entries({
+        weight: pet.value.weight,
+        bcs: pet.value.bcs,
+        deworming: pet.value.deworming,
+        specialPeriod: pet.value.specialPeriod,
+        vaccine: pet.value.vaccine,
+        rearingMethod: pet.value.rearingMethod,
+        medicalHistory: pet.value.medicalHistory,
+      }).filter(([, v]) => v != null && v !== ''),
+    ),
   }
 
   streamCtrl = chatStream({
@@ -326,10 +349,10 @@ const onEnterKey = (e) => {
       <!-- 对话主体：左侧宠物 / 会话侧栏 + 右侧聊天区 -->
       <el-card v-else shadow="never" class="chat-card">
         <div class="chat-layout">
-          <!-- 侧栏：宠物切换 + 当前宠物的会话列表 -->
+          <!-- 侧栏：宠物切换（咨询对象） + 用户与所有宠物的统一会话列表 -->
           <aside class="chat-sidebar">
             <div class="side-section">
-              <div class="side-title">我的宠物</div>
+              <div class="side-title">咨询对象</div>
               <el-scrollbar class="pet-scroll">
                 <div
                   v-for="p in pets"
@@ -364,6 +387,9 @@ const onEnterKey = (e) => {
                   :class="{ active: isSessionActive(s) }"
                   @click="selectSession(s)"
                 >
+                  <span v-if="petById(s.petId)" class="session-pet">
+                    {{ petById(s.petId).name }}
+                  </span>
                   <span class="session-title">{{ s.title || '新会话' }}</span>
                   <el-popconfirm
                     title="删除该会话及全部记录？"
@@ -425,10 +451,10 @@ const onEnterKey = (e) => {
                   <el-avatar
                     v-if="msg.role === 'assistant'"
                     :size="34"
-                    :src="pet.imageUrl || ''"
+                    :src="msgPet(msg)?.imageUrl || ''"
                     class="msg-avatar"
                   >
-                    {{ (pet.name || '宠')[0] }}
+                    {{ (msgPet(msg)?.name || '宠')[0] }}
                   </el-avatar>
                   <div class="bubble-col">
                     <div class="bubble" :class="{ thinking: msg.thinking }">
@@ -620,6 +646,21 @@ const onEnterKey = (e) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 会话归属宠物小标签：统一列表跨宠物展示，标注该会话属于哪只宠物 */
+.session-pet {
+  flex-shrink: 0;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: var(--pv-text-secondary);
+  background: var(--pv-tint);
+  border: 1px solid var(--pv-border);
 }
 .session-item.active .session-title {
   font-weight: 600;

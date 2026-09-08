@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Plus } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
-import { listMyPets } from '@/api/pet'
+import { listMyPets, uploadPetAvatar, updatePetHealth } from '@/api/pet'
 import logo from '@/assets/logo.jpg'
 
 const route = useRoute()
@@ -12,6 +13,7 @@ const loading = ref(true)
 const pets = ref([])
 
 // 当前查看的宠物：优先路由指定 ID，其次第一只已签发身份卡的宠物，兜底第一只
+// 宠物 ID 为雪花 ID（后端序列化为字符串），比较统一走 String，禁止 Number 转换以防精度丢失
 const current = computed(
   () =>
     pets.value.find((p) => String(p.id) === String(route.params.id)) ||
@@ -20,18 +22,21 @@ const current = computed(
     null,
 )
 
+// 是否已完成身份认证（签发身份卡）：cardIssueDate 非空即已认证
+const issued = computed(() => !!current.value?.cardIssueDate)
+
 // 切换宠物：replace 避免切换过程堆积历史记录
 const select = (pet) => {
-  if (!current.value || pet.id !== current.value.id) {
+  if (!current.value || String(pet.id) !== String(current.value.id)) {
     router.replace(`/pet/identity/${pet.id}`)
   }
 }
 
-// 真实宠物按生日计算年龄，不足 1 岁展示月龄；虚拟宠物直接使用年龄字段
+// 真实宠物按生日计算年龄，不足 1 岁展示月龄；虚拟宠物直接使用年龄字段；未知返回空
 const ageText = (pet) => {
-  if (!pet) return '未填写'
-  if (pet.type !== 'REAL') return `${pet.age ?? 0}岁`
-  if (!pet.birthday) return '未填写'
+  if (!pet) return ''
+  if (pet.type !== 'REAL') return pet.age ? `${pet.age}岁` : ''
+  if (!pet.birthday) return ''
   const birth = new Date(pet.birthday)
   const now = new Date()
   let months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
@@ -40,8 +45,122 @@ const ageText = (pet) => {
   return months >= 12 ? `${Math.floor(months / 12)}岁` : `${months}个月`
 }
 
-// 签发编号：签发日期去掉分隔符，如 20260905
-const dateNo = (pet) => (pet?.cardIssueDate ? pet.cardIssueDate.replace(/-/g, '') : '')
+// 性别双语文案：1-弟弟/Boy 2-妹妹/Girl
+const genderText = (pet) => {
+  if (!pet) return ''
+  if (pet.gender === 1 || pet.gender === '1') return '弟弟 / Boy'
+  if (pet.gender === 2 || pet.gender === '2') return '妹妹 / Girl'
+  return pet.genderName || ''
+}
+
+// 证件字段：仅收集已填写的内容，未认证宠物自然只展示已填字段
+const fields = computed(() => {
+  const p = current.value
+  if (!p) return []
+  const list = [{ label: '姓名 / NAME', value: p.name || '', full: true }]
+  const breed = p.breed || p.species
+  if (breed) list.push({ label: '品种 / BREED', value: breed })
+  const age = ageText(p)
+  if (age) list.push({ label: '年龄 / AGE', value: age })
+  const gender = genderText(p)
+  if (gender) list.push({ label: '性别 / GENDER', value: gender })
+  // 绝育状态默认值为「未绝育」，仅在已认证（明确填写过档案）时展示，避免展示未确认的默认值
+  if (issued.value) {
+    list.push({ label: '绝育 / NEUTERED', value: p.sterilized ? '已绝育 / Yes' : '未绝育 / No' })
+  }
+  return list
+})
+
+// 签发日期：签发日期去掉分隔符，如 20260905；未签发展示占位文案
+const issueText = computed(() =>
+  current.value?.cardIssueDate
+    ? current.value.cardIssueDate.replace(/-/g, '')
+    : '未签发 / NOT ISSUED',
+)
+
+// ===== 头像放大 + 切换 =====
+const avatarDialog = ref(false)
+const switching = ref(false)
+
+const openAvatar = () => {
+  if (current.value) avatarDialog.value = true
+}
+
+// 切换头像：选中图片后上传 OSS 并就地更新当前宠物展示
+const onSwitchAvatar = async ({ file }) => {
+  if (switching.value || !current.value) return
+  switching.value = true
+  try {
+    const data = await uploadPetAvatar(current.value.id, file)
+    const idx = pets.value.findIndex((p) => String(p.id) === String(data.id))
+    if (idx > -1) pets.value[idx] = data
+    ElMessage.success('头像已更新')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    switching.value = false
+  }
+}
+
+const goProfile = () => {
+  if (current.value) router.push(`/pet/profile/${current.value.id}`)
+}
+
+// ===== 健康信息（仅猫/狗展示，随 AI 咨询上下文发送） =====
+// 类别元数据：key 与后端字段 / AI 上下文键一致；icon 用 emoji、color 为图标底色
+const HEALTH_ITEMS = [
+  { key: 'weight', label: '体重', icon: '⚖️', color: '#4a90d9', hint: '定时记录体重可以更好的管理爱宠健康～', full: true },
+  { key: 'bcs', label: 'BCS', icon: '📊', color: '#2ec7a0', hint: '体况评分' },
+  { key: 'deworming', label: '驱虫', icon: '🐛', color: '#8b6fe8', hint: '建议3个月1次' },
+  { key: 'specialPeriod', label: '特殊时期', icon: '📅', color: '#f5a623', hint: '如发情期 / 孕期 / 哺乳期' },
+  { key: 'vaccine', label: '疫苗', icon: '💉', color: '#e858a8', hint: '建议接种疫苗' },
+  { key: 'rearingMethod', label: '养育方式', icon: '🏠', color: '#e8604c', hint: '如室内散养 / 笼养等' },
+  { key: 'medicalHistory', label: '病史', icon: '🏥', color: '#29b6d8', hint: '记录既往疾病与用药' },
+]
+
+// 仅猫 / 狗展示健康信息模块
+const showHealth = computed(() => ['猫', '狗'].includes(current.value?.species))
+
+// 健康项编辑弹窗：点击磁贴或 + 号打开，回填当前值
+const healthDialog = ref(false)
+const healthTarget = ref(null)
+const healthValue = ref('')
+const savingHealth = ref(false)
+
+const openHealthEdit = (item) => {
+  if (!current.value) return
+  healthTarget.value = item
+  healthValue.value = current.value[item.key] || ''
+  healthDialog.value = true
+}
+
+const onSaveHealth = async () => {
+  if (!current.value || !healthTarget.value || savingHealth.value) return
+  savingHealth.value = true
+  try {
+    const data = await updatePetHealth(current.value.id, healthTarget.value.key, healthValue.value)
+    const idx = pets.value.findIndex((p) => String(p.id) === String(data.id))
+    if (idx > -1) pets.value[idx] = data
+    healthDialog.value = false
+    ElMessage.success('健康信息已更新')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    savingHealth.value = false
+  }
+}
+
+// 返回：身份卡页主要经新标签打开，无历史可退，关闭当前标签即回到上一操作页面；
+// 同标签内跳转进入（历史可退，如去领养后的回退）则正常回退；
+// 浏览器拒绝脚本关闭非脚本打开的标签时，兜底回首页避免无反应
+const onBack = () => {
+  if (window.history.length > 1 && window.history.state?.back) {
+    router.back()
+    return
+  }
+  window.close()
+  if (!window.closed) router.replace('/')
+}
 
 onMounted(async () => {
   try {
@@ -56,7 +175,7 @@ onMounted(async () => {
 
 <template>
   <div class="page">
-    <AppHeader title="宠物身份证" show-back />
+    <AppHeader title="宠物身份证" show-back @back="onBack" />
 
     <div v-loading="loading" class="page-container">
       <!-- 无宠物 -->
@@ -75,81 +194,130 @@ onMounted(async () => {
             v-for="p in pets"
             :key="p.id"
             class="switcher-chip"
-            :class="{ active: p.id === current.id }"
+            :class="{ active: String(p.id) === String(current.id) }"
             @click="select(p)"
           >
             <el-avatar :size="26" :src="p.imageUrl || ''">{{ (p.name || '宠')[0] }}</el-avatar>
             <span class="chip-name">{{ p.name }}</span>
-            <span v-if="!p.cardIssueDate" class="chip-lock">未签发</span>
+            <span v-if="!p.cardIssueDate" class="chip-lock">未认证</span>
           </button>
         </div>
 
-        <!-- 已签发：宠物身份证 -->
-        <div v-if="current.cardIssueDate" class="id-card">
-          <div class="id-card-title">宠物身份证</div>
+        <!-- 宠物身份证 -->
+        <div class="id-card" :class="{ unissued: !issued }">
+          <div class="id-card-head">
+            <div class="id-card-title">
+              <span class="title-cn">宠物身份证</span>
+              <span class="title-en">PET IDENTITY CARD</span>
+            </div>
+            <span v-if="!issued" class="unverified-tag">未认证 / UNVERIFIED</span>
+          </div>
+
           <div class="id-card-body">
-            <el-avatar :size="150" :src="current.imageUrl || ''" class="id-avatar">
-              {{ (current.name || '宠')[0] }}
-            </el-avatar>
+            <!-- 点击头像放大并可切换 -->
+            <div class="id-avatar-wrap" title="点击放大 / 更换头像" @click="openAvatar">
+              <el-avatar :size="150" :src="current.imageUrl || ''" class="id-avatar">
+                {{ (current.name || '宠')[0] }}
+              </el-avatar>
+              <div class="avatar-zoom">放大 / 更换</div>
+            </div>
+
             <div class="id-fields">
-              <div class="id-field id-field-full">
-                <div class="id-label">名字/NAME</div>
-                <div class="id-value id-name">{{ current.name }}</div>
-              </div>
-              <div class="id-field">
-                <div class="id-label">品种/BREED ›</div>
-                <div class="id-value">{{ current.breed || current.species || '未填写' }}</div>
-              </div>
-              <div class="id-field">
-                <div class="id-label">年龄/AGE</div>
-                <div class="id-value">{{ ageText(current) }}</div>
-              </div>
-              <div class="id-field">
-                <div class="id-label">性别/GENDER</div>
-                <div class="id-value">{{ current.genderName || '未填写' }}</div>
-              </div>
-              <div class="id-field">
-                <div class="id-label">绝育/NEUTER</div>
-                <div class="id-value">{{ current.sterilized ? '已绝育' : '未绝育' }}</div>
+              <div
+                v-for="f in fields"
+                :key="f.label"
+                class="id-field"
+                :class="{ 'id-field-full': f.full }"
+              >
+                <div class="id-label">{{ f.label }}</div>
+                <div class="id-value" :class="{ 'id-name': f.full }">{{ f.value }}</div>
               </div>
             </div>
           </div>
+
           <div class="id-card-footer">
             <div class="id-brand">
               <img :src="logo" alt="PetVerse" class="id-logo" />
               <span class="id-brand-name">PetVerse</span>
             </div>
             <div class="id-date">
-              <span class="id-label">签发日期/DATE No.</span>
-              <span class="id-date-no">{{ dateNo(current) }}</span>
+              <span class="id-label">签发日期 / DATE OF ISSUE</span>
+              <span class="id-date-no" :class="{ 'date-empty': !issued }">{{ issueText }}</span>
             </div>
+          </div>
+
+          <!-- 未认证宠物：底部完善档案入口 -->
+          <div v-if="!issued" class="id-card-action">
+            <el-button type="primary" round @click="goProfile">完善档案 / Complete Profile</el-button>
           </div>
         </div>
 
-        <!-- 未签发：真实宠物待完善档案后自动签发 -->
-        <div v-else class="id-card unissued">
-          <div class="id-card-title">宠物身份证</div>
-          <div class="id-unissued-body">
-            <div class="stamp">未签发</div>
-            <p class="unissued-tip">
-              {{
-                current.type === 'REAL'
-                  ? '完善宠物档案（种类 / 性别 / 生日）后自动签发身份卡'
-                  : '身份卡尚未签发'
-              }}
-            </p>
-            <el-button
-              v-if="current.type === 'REAL'"
-              type="primary"
-              round
-              @click="router.push(`/pet/profile/${current.id}`)"
+        <!-- 健康信息：仅猫/狗展示，可逐项记录并随 AI 咨询上下文发送 -->
+        <div v-if="showHealth" class="health-section">
+          <div class="health-title">健康信息</div>
+          <div class="health-grid">
+            <div
+              v-for="item in HEALTH_ITEMS"
+              :key="item.key"
+              class="health-tile"
+              :class="{ 'health-tile-full': item.full }"
+              :title="`点击记录${item.label}`"
+              @click="openHealthEdit(item)"
             >
-              去完善信息
-            </el-button>
+              <div class="health-tile-head">
+                <span class="health-icon" :style="{ background: item.color }">{{ item.icon }}</span>
+                <span class="health-label">{{ item.label }}</span>
+                <el-icon class="health-add"><Plus /></el-icon>
+              </div>
+              <div class="health-value" :class="{ 'health-hint': !current[item.key] }">
+                {{ current[item.key] || item.hint }}
+              </div>
+            </div>
           </div>
         </div>
       </template>
     </div>
+
+    <!-- 头像放大 + 切换弹窗 -->
+    <el-dialog v-model="avatarDialog" width="420px" align-center class="avatar-dialog">
+      <div class="avatar-view">
+        <el-image
+          v-if="current?.imageUrl"
+          :src="current.imageUrl"
+          fit="contain"
+          class="avatar-big"
+          :preview-src-list="[current.imageUrl]"
+          :initial-index="0"
+          preview-teleported
+        />
+        <div v-else class="avatar-placeholder">{{ (current?.name || '宠')[0] }}</div>
+      </div>
+      <div class="avatar-actions">
+        <el-upload
+          :show-file-list="false"
+          accept="image/png,image/jpeg,image/jpg,image/webp"
+          :http-request="onSwitchAvatar"
+        >
+          <el-button type="primary" round :loading="switching">切换头像 / Change Avatar</el-button>
+        </el-upload>
+      </div>
+    </el-dialog>
+
+    <!-- 健康信息编辑弹窗 -->
+    <el-dialog v-model="healthDialog" :title="`记录${healthTarget?.label || ''}`" width="420px">
+      <el-input
+        v-model="healthValue"
+        type="textarea"
+        :rows="3"
+        maxlength="500"
+        show-word-limit
+        :placeholder="healthTarget?.hint || '请输入内容'"
+      />
+      <template #footer>
+        <el-button @click="healthDialog = false">取消</el-button>
+        <el-button type="primary" :loading="savingHealth" @click="onSaveHealth">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -215,10 +383,42 @@ onMounted(async () => {
   background-size: 640px 420px;
   box-shadow: var(--pv-shadow);
 }
+.id-card.unissued {
+  background-color: #f2f1ee;
+  background-image: none;
+}
+.id-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 .id-card-title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.title-cn {
   font-size: 20px;
   font-weight: 800;
   color: var(--pv-ink);
+  letter-spacing: 2px;
+}
+.title-en {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: #3d8bd4;
+}
+.unverified-tag {
+  flex-shrink: 0;
+  padding: 3px 12px;
+  border: 1px solid rgba(196, 86, 86, 0.5);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: rgba(196, 86, 86, 0.85);
 }
 .id-card-body {
   display: flex;
@@ -226,13 +426,35 @@ onMounted(async () => {
   gap: 30px;
   margin-top: 20px;
 }
-.id-avatar {
+.id-avatar-wrap {
+  position: relative;
   flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 50%;
+}
+.id-avatar {
   border: 6px solid #fff;
   background: #f7ddc9;
   font-size: 46px;
   color: #8a5a3b;
   box-shadow: 0 8px 18px rgba(23, 24, 28, 0.12);
+}
+.avatar-zoom {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(23, 24, 28, 0.45);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.id-avatar-wrap:hover .avatar-zoom {
+  opacity: 1;
 }
 .id-fields {
   flex: 1;
@@ -285,8 +507,9 @@ onMounted(async () => {
 }
 .id-date {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
 }
 .id-date-no {
   font-size: 26px;
@@ -294,30 +517,110 @@ onMounted(async () => {
   letter-spacing: 2px;
   color: var(--pv-ink);
 }
-
-/* 未签发状态：灰底 + 红色未签发印章 */
-.unissued {
-  background-color: #f2f1ee;
-  background-image: none;
+.id-date-no.date-empty {
+  font-size: 15px;
+  letter-spacing: 1px;
+  color: var(--pv-text-secondary);
 }
-.id-unissued-body {
-  padding: 34px 0 26px;
+.id-card-action {
+  margin-top: 22px;
   text-align: center;
 }
-.stamp {
-  display: inline-block;
-  padding: 6px 18px;
-  border: 3px solid rgba(196, 86, 86, 0.65);
-  border-radius: 8px;
-  color: rgba(196, 86, 86, 0.8);
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: 6px;
-  transform: rotate(-8deg);
+
+/* 头像放大弹窗 */
+.avatar-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
 }
-.unissued-tip {
-  margin: 18px 0 14px;
+.avatar-big {
+  width: 240px;
+  height: 240px;
+  border-radius: 12px;
+  background: #f2f1ee;
+}
+.avatar-placeholder {
+  width: 240px;
+  height: 240px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f7ddc9;
+  color: #8a5a3b;
+  font-size: 72px;
+  font-weight: 700;
+}
+.avatar-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: center;
+}
+
+/* 健康信息模块：彩色图标磁贴，体重占整行，其余两列 */
+.health-section {
+  max-width: 640px;
+  margin: 20px auto 0;
+}
+.health-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--pv-text);
+  margin-bottom: 12px;
+}
+.health-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.health-tile {
+  border: 1px solid var(--pv-border);
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.health-tile:hover {
+  box-shadow: var(--pv-shadow);
+  transform: translateY(-1px);
+}
+.health-tile-full {
+  grid-column: 1 / -1;
+}
+.health-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.health-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.health-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--pv-text);
+  flex: 1;
+}
+.health-add {
+  color: var(--pv-text-secondary);
+  font-size: 16px;
+}
+.health-value {
+  margin-top: 10px;
   font-size: 13px;
+  color: var(--pv-text);
+  word-break: break-all;
+}
+.health-value.health-hint {
   color: var(--pv-text-secondary);
 }
 
@@ -331,6 +634,15 @@ onMounted(async () => {
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+  }
+  .id-date {
+    align-items: flex-start;
+  }
+  .health-grid {
+    grid-template-columns: 1fr;
+  }
+  .health-tile-full {
+    grid-column: auto;
   }
 }
 </style>

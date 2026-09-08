@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, useAttrs, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown, ArrowLeft, Bell } from '@element-plus/icons-vue'
 import logo from '@/assets/logo.jpg'
@@ -8,6 +8,16 @@ import { DEFAULT_AVATAR } from '@/utils/avatar'
 
 const route = useRoute()
 const router = useRouter()
+
+// 返回按钮：父组件监听了 back 事件则交给父组件自定义处理（如新标签页关闭当前标签），否则默认历史回退
+const attrs = useAttrs()
+const onBack = () => {
+  if (attrs.onBack) {
+    attrs.onBack()
+    return
+  }
+  router.back()
+}
 
 defineProps({
   /** 页面标题 */
@@ -135,7 +145,7 @@ onUnmounted(stopPolling)
   <header class="app-header">
     <div class="header-inner">
       <div class="left">
-        <el-button v-if="showBack" text :icon="ArrowLeft" @click="router.back()">返回</el-button>
+        <el-button v-if="showBack" text :icon="ArrowLeft" @click="onBack">返回</el-button>
         <span class="logo">
           <img :src="logo" alt="PetVerse" class="logo-mark" />
           <span class="logo-text">{{ title }}</span>

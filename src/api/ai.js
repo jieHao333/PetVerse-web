@@ -157,13 +157,13 @@ export function chatStream({ message, pet, sessionId, onMeta, onDelta, onDone, o
   }
 }
 
-/** 查询指定会话的历史对话（时间正序），data 为 { sessionId, messages: [{ role, content, ts }] } */
+/** 查询指定会话的历史对话（时间正序），data 为 { sessionId, messages: [{ role, content, petId, ts }] } */
 export const getChatHistory = (sessionId) =>
   request.get('/ai/chat/history', { params: { sessionId } })
 
-/** 查询指定宠物的会话列表（最近活跃在前），data 为 { petId, sessions: [{ id, title, createTime, updateTime }] } */
-export const listChatSessions = (petId) =>
-  request.get('/ai/chat/sessions', { params: { petId } })
+/** 查询当前用户的全部会话（跨宠物统一展示，最近活跃在前），data 为 { sessions: [{ id, petId, title, createTime, updateTime }] } */
+export const listChatSessions = () =>
+  request.get('/ai/chat/sessions')
 
 /** 删除会话（连带会话下全部消息） */
 export const deleteChatSession = (sessionId) =>
