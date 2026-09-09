@@ -60,10 +60,13 @@ let streamCtrl = null // 当前流式请求控制器（{ abort }）
 // 宠物激活态比较键：宠物 ID 为雪花 ID（后端 Long 序列化为字符串），用字符串比较避免 Number() 精度丢失
 const petKey = (p) => (p == null ? null : String(p.id))
 const isPetActive = (p) => petKey(p) === petKey(pet.value)
-// 按 petId 解析消息归属的宠物对象（petId 为 0 / null 或宠物已删除时返回 null）
+// 按 petId 解析消息归属的宠物对象（petId 为 0 / null 或宠物已删除时返回 null）；
+// petId 后端以字符串下发（雪花 ID），全程用字符串比较，不能用 Number() 否则尾数截断
 const petById = (id) => {
-  if (id == null || !Number(id)) return null
-  return pets.value.find((p) => petKey(p) === String(id)) || null
+  const key = id == null ? '' : String(id)
+  // '0' 表示该会话 / 消息未绑定宠物（历史脏数据），视为未知
+  if (!key || key === '0') return null
+  return pets.value.find((p) => petKey(p) === key) || null
 }
 // 消息展示用的宠物：优先按消息归属的 petId 回溯，找不到时回退当前选中宠物
 const msgPet = (msg) => petById(msg.petId) || pet.value
@@ -157,12 +160,39 @@ onUnmounted(() => {
 })
 
 // ---------- 宠物切换 / 会话管理 ----------
+// 跨宠物上下文切换的二次确认：当前正与一只宠物对话，切换后将从新对话开始，
+// 用弹窗避免用户误触导致当前咨询上下文丢失（点取消保持原状）
+const confirmSwitchContext = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '正在回答当前宠物的对话，切换宠物会切换新对话，确定更换吗？',
+      '切换确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+      },
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
 // 切换宠物：会话仍按「用户 + 宠物」隔离，切换后进入该宠物的新对话待创建态（懒创建），
 // 不立即调建会话接口——否则频繁切换会不断产生空的历史会话记录；
 // 真正的会话在用户发出首条消息时由后端按当前宠物自动创建并通过 meta 事件回传。
 // 历史会话无需先选宠物：侧栏统一展示与所有宠物的历史对话，点选即回到对应会话。
-const switchPet = (p) => {
+// 当前正与「绑定宠物」对话时（已打开其历史会话，或新对话里已有往来消息），
+// 换宠物会丢弃这段对话并开启新对话，先弹窗确认再切；
+// 注意比较基准是当前绑定宠物 pet.value（它始终跟随会话归属同步），
+// 不去查会话列表——刚由 meta 创建的会话可能还没刷新进列表，会造成漏弹。
+const switchPet = async (p) => {
   if (!p || isPetActive(p)) return
+  // 走到这里 p 已确定不是当前绑定宠物；再看是否存在会被丢弃的对话
+  if (currentSessionId.value != null || messages.value.length) {
+    if (!(await confirmSwitchContext())) return
+  }
   // 切换前中断进行中的流式生成，避免回复落入已切走的宠物会话画面
   if (sending.value) handleStop()
   pet.value = p
@@ -170,12 +200,17 @@ const switchPet = (p) => {
   messages.value = []
 }
 
-// 手动选择历史会话：统一列表跨宠物展示，选中时同步当前宠物为该会话的归属宠物，
-// 保证顶部信息与后续提问的咨询上下文一致
+// 手动选择历史会话：统一列表跨宠物展示，会话本身绑定宠物，
+// 选中时同步当前绑定宠物为该会话的归属宠物，保证顶部信息与后续提问的咨询上下文一致；
+// 若目标会话归属的宠物与当前绑定宠物不同，先弹窗确认，确认后绑定宠物切到目标会话
 const selectSession = async (s) => {
   if (isSessionActive(s)) return
-  if (sending.value) handleStop()
+  // 归属宠物已删除（owner 为 null）时无从比较，保持现有降级行为：直接打开会话
   const owner = petById(s.petId)
+  if (owner && !isPetActive(owner)) {
+    if (!(await confirmSwitchContext())) return
+  }
+  if (sending.value) handleStop()
   if (owner) pet.value = owner
   currentSessionId.value = Number(s.id)
   messages.value = []
