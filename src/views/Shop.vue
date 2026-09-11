@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, ShoppingCart } from '@element-plus/icons-vue'
 import { pageProducts } from '@/api/shop'
+import { getRecommendations } from '@/api/ai'
 
 const router = useRouter()
 
@@ -42,7 +43,28 @@ const loadProducts = async () => {
   }
 }
 
-onMounted(loadProducts)
+onMounted(() => {
+  loadProducts()
+  loadRecommend()
+})
+
+/* ==================== 猜你喜欢（LangGraph 个性化推荐） ==================== */
+
+const recommendItems = ref([])
+const recommendLoading = ref(false)
+
+const loadRecommend = async () => {
+  recommendLoading.value = true
+  try {
+    const data = await getRecommendations('shop')
+    // 商城场景只保留商品类推荐
+    recommendItems.value = (data.items || []).filter((i) => i.type === 'product')
+  } catch {
+    recommendItems.value = []
+  } finally {
+    recommendLoading.value = false
+  }
+}
 
 const onSearch = () => {
   pageNum.value = 1
@@ -152,6 +174,40 @@ const openMyReviews = () => {
             @current-change="loadProducts"
             @size-change="onSizeChange"
           />
+        </div>
+      </el-card>
+
+      <!-- 猜你喜欢：AI 结合宠物画像与浏览行为生成（失败/空态自动隐藏） -->
+      <el-card v-if="recommendItems.length" shadow="never" class="section">
+        <template #header>
+          <div class="card-header">
+            <span class="card-title">✨ 猜你喜欢</span>
+          </div>
+        </template>
+        <div v-loading="recommendLoading" class="product-grid">
+          <div
+            v-for="item in recommendItems"
+            :key="`rec-${item.id}`"
+            class="product-card"
+            @click="openDetail(item)"
+          >
+            <div class="product-img">
+              <el-image v-if="item.image" :src="item.image" fit="cover" class="img">
+                <template #error>
+                  <div class="img-placeholder">🛍️</div>
+                </template>
+              </el-image>
+              <div v-else class="img-placeholder">🛍️</div>
+              <el-tag type="warning" size="small" class="category-tag" effect="dark">推荐</el-tag>
+            </div>
+            <div class="product-body">
+              <div class="product-name">{{ item.title }}</div>
+              <div class="product-shop recommend-reason">{{ item.reason }}</div>
+              <div class="product-bottom">
+                <span class="price">¥{{ item.price }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </el-card>
     </div>
@@ -289,5 +345,8 @@ const openMyReviews = () => {
 .total-text {
   font-size: 13px;
   color: var(--pv-text-secondary);
+}
+.recommend-reason {
+  color: #6b4fd8;
 }
 </style>

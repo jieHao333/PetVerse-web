@@ -168,3 +168,33 @@ export const listChatSessions = () =>
 /** 删除会话（连带会话下全部消息） */
 export const deleteChatSession = (sessionId) =>
   request.delete(`/ai/chat/sessions/${sessionId}`)
+
+/* ---------------- 以下为新增 AI 能力（均为普通 JSON 接口，走 axios 封装） ---------------- */
+
+/**
+ * 宠物健康智能评估
+ * @param {Object} pet 宠物档案（字段与对话接口的 pet 一致，含 health 子对象）
+ * @returns {Promise<Object>} { score, level, summary, risks, suggestions, carePlan, reminders, disclaimer }
+ */
+export const assessPetHealth = (pet) => request.post('/ai/health/assess', pet)
+
+/** 查询某宠物的历史健康评估（时间倒序），data 为 { reports: [...] } */
+export const getHealthHistory = (petId, limit = 10) =>
+  request.get('/ai/health/history', { params: { petId, limit } })
+
+/**
+ * 商品评论 AI 摘要
+ * @param {number|string} productId 商品 ID
+ * @returns {Promise<Object>} { sentiment, one_line, pros, cons, keywords, count }
+ */
+export const summarizeProductReviews = (productId) =>
+  request.post('/ai/shop/review/summary', { productId: Number(productId) })
+
+/**
+ * 个性化推荐流
+ * @param {string} scene home 首页 / shop 商城
+ * @param {boolean} refresh 是否跳过缓存强制刷新
+ * @returns {Promise<Object>} { items: [{ id, type, title, image, price, reason, score, ... }], summary }
+ */
+export const getRecommendations = (scene = 'home', refresh = false) =>
+  request.get('/ai/recommend/feed', { params: { scene, refresh } })

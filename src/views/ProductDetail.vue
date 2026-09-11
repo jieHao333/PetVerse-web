@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ShoppingCart } from '@element-plus/icons-vue'
 import { addCartItem, buyNowOrder, deleteReviewReply, getProductDetail, getReviewSummary, pageProductReviews, pageReviewReplies, payOrder, saveReviewReply } from '@/api/shop'
+import { summarizeProductReviews } from '@/api/ai'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
 
 const route = useRoute()
@@ -126,6 +127,30 @@ const loadSummary = async () => {
     summary.value = null
   }
 }
+
+/* ==================== AI 评论总结（LangGraph 编排生成） ==================== */
+
+const aiSummary = ref(null)
+const aiSummaryLoading = ref(false)
+
+const onAiSummary = async () => {
+  if (aiSummaryLoading.value) return
+  aiSummaryLoading.value = true
+  try {
+    aiSummary.value = await summarizeProductReviews(productId.value)
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    aiSummaryLoading.value = false
+  }
+}
+
+// 情感 -> 展示文案 / 标签色
+const sentimentMeta = (s) =>
+  ({
+    positive: { text: '好评居多', type: 'success' },
+    negative: { text: '差评居多', type: 'danger' },
+  })[s] || { text: '评价中性', type: 'info' }
 
 const loadReviews = async () => {
   reviewLoading.value = true
@@ -404,6 +429,42 @@ onMounted(() => {
                   {{ star }} 星
                 </el-button>
               </div>
+            </div>
+
+            <!-- AI 评论总结：由 LangGraph 汇总真实评论，生成口碑概览 -->
+            <div v-if="summary && summary.totalCount > 0" class="ai-review-box">
+              <div class="ai-review-head">
+                <span class="ai-review-title">✨ AI 评论总结</span>
+                <el-button type="primary" plain size="small" round :loading="aiSummaryLoading" @click="onAiSummary">
+                  {{ aiSummary ? '重新生成' : '生成总结' }}
+                </el-button>
+              </div>
+              <div v-if="aiSummary && aiSummary.count > 0" class="ai-review-body">
+                <div class="ai-review-oneline">
+                  <el-tag :type="sentimentMeta(aiSummary.sentiment).type" size="small" effect="dark">
+                    {{ sentimentMeta(aiSummary.sentiment).text }}
+                  </el-tag>
+                  <span>{{ aiSummary.one_line }}</span>
+                </div>
+                <div v-if="aiSummary.pros?.length" class="ai-review-cols">
+                  <div class="ai-review-col">
+                    <div class="ai-review-label good">👍 优点</div>
+                    <ul><li v-for="(p, i) in aiSummary.pros" :key="i">{{ p }}</li></ul>
+                  </div>
+                  <div v-if="aiSummary.cons?.length" class="ai-review-col">
+                    <div class="ai-review-label bad">👎 不足</div>
+                    <ul><li v-for="(c, i) in aiSummary.cons" :key="i">{{ c }}</li></ul>
+                  </div>
+                </div>
+                <div v-if="aiSummary.keywords?.length" class="ai-review-keywords">
+                  <el-tag v-for="(k, i) in aiSummary.keywords" :key="i" size="small" effect="plain" type="info">
+                    {{ k }}
+                  </el-tag>
+                </div>
+                <div class="ai-review-note">基于 {{ aiSummary.count }} 条真实评论由 AI 生成，仅供参考</div>
+              </div>
+              <div v-else-if="aiSummary" class="ai-review-empty">该商品暂无足够评论可供 AI 总结</div>
+              <div v-else class="ai-review-empty">点击「生成总结」，AI 将汇总真实评论帮你快速了解商品口碑</div>
             </div>
 
             <div v-loading="reviewLoading" class="review-list">
@@ -773,6 +834,82 @@ onMounted(() => {
 }
 .summary-filters .el-button + .el-button {
   margin-left: 0;
+}
+
+/* AI 评论总结 */
+.ai-review-box {
+  border: 1px solid #e4ddf7;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #faf8ff 0%, #ffffff 100%);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.ai-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ai-review-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #6b4fd8;
+}
+.ai-review-body {
+  margin-top: 12px;
+}
+.ai-review-oneline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--pv-text);
+}
+.ai-review-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 20px;
+  margin-top: 10px;
+}
+.ai-review-label {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.ai-review-label.good {
+  color: #2ec7a0;
+}
+.ai-review-label.bad {
+  color: #e8604c;
+}
+.ai-review-col ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--pv-text);
+}
+.ai-review-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.ai-review-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+}
+.ai-review-empty {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--pv-text-secondary);
+}
+@media (max-width: 768px) {
+  .ai-review-cols {
+    grid-template-columns: 1fr;
+  }
 }
 .review-list {
   min-height: 80px;

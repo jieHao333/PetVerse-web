@@ -5,6 +5,7 @@ import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import PetDeleteDialog from '@/components/PetDeleteDialog.vue'
 import { getMe } from '@/api/user'
 import { listMyPets, renamePet, signIn } from '@/api/pet'
+import { getRecommendations } from '@/api/ai'
 
 const router = useRouter()
 
@@ -111,7 +112,38 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  // 推荐单独加载：失败静默降级，不阻塞首页主内容
+  loadRecommend()
 })
+
+/* ==================== 为你推荐（LangGraph 个性化推荐） ==================== */
+
+const recommendItems = ref([])
+const recommendSummary = ref('')
+const recommendLoading = ref(false)
+
+const loadRecommend = async () => {
+  recommendLoading.value = true
+  try {
+    const data = await getRecommendations('home')
+    recommendItems.value = data.items || []
+    recommendSummary.value = data.summary || ''
+  } catch {
+    // 推荐失败不影响首页主流程，静默降级为空态
+    recommendItems.value = []
+  } finally {
+    recommendLoading.value = false
+  }
+}
+
+// 点击推荐项：商品进详情页，动态进圈子
+const openRecommend = (item) => {
+  if (item.type === 'product') {
+    router.push(`/shop/product/${item.id}`)
+  } else {
+    router.push('/space')
+  }
+}
 
 // 每日签到为所有虚拟宠物增加经验，提示中标注升级的宠物
 const onSignIn = async () => {
@@ -261,6 +293,37 @@ const onSignIn = async () => {
           </el-result>
         </el-card>
       </template>
+
+      <!-- 为你推荐：AI 结合宠物画像与浏览行为生成（失败/空态自动隐藏） -->
+      <el-card v-if="!loading && recommendItems.length" shadow="never" class="section">
+        <template #header>
+          <div class="section-header">
+            <span class="card-title">✨ 为你推荐</span>
+            <span v-if="recommendSummary" class="recommend-summary">{{ recommendSummary }}</span>
+          </div>
+        </template>
+        <div v-loading="recommendLoading" class="recommend-grid">
+          <div
+            v-for="item in recommendItems"
+            :key="`${item.type}-${item.id}`"
+            class="recommend-card"
+            @click="openRecommend(item)"
+          >
+            <div class="recommend-cover">
+              <el-image v-if="item.image" :src="item.image" fit="cover" class="recommend-img">
+                <template #error><div class="recommend-ph">{{ item.type === 'product' ? '🛍️' : '🐾' }}</div></template>
+              </el-image>
+              <div v-else class="recommend-ph">{{ item.type === 'product' ? '🛍️' : '🐾' }}</div>
+              <el-tag size="small" effect="dark" class="recommend-type">
+                {{ item.type === 'product' ? '好物' : '动态' }}
+              </el-tag>
+            </div>
+            <div class="recommend-title">{{ item.title || '—' }}</div>
+            <div class="recommend-reason">{{ item.reason }}</div>
+            <div v-if="item.type === 'product'" class="recommend-price">¥{{ item.price }}</div>
+          </div>
+        </div>
+      </el-card>
     </div>
 
     <!-- 引导 / 添加宠物弹窗：名下已有宠物时切换为「添加」文案 -->
@@ -514,6 +577,83 @@ const onSignIn = async () => {
 }
 .empty-card :deep(.el-card__body) {
   padding: 40px 24px;
+}
+
+/* 为你推荐 */
+.recommend-summary {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recommend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 14px;
+}
+.recommend-card {
+  border: 1px solid var(--pv-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.recommend-card:hover {
+  box-shadow: var(--pv-shadow);
+  transform: translateY(-2px);
+}
+.recommend-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: #f6f5f2;
+}
+.recommend-img {
+  width: 100%;
+  height: 100%;
+}
+.recommend-ph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  color: var(--pv-text-secondary);
+}
+.recommend-type {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+}
+.recommend-title {
+  padding: 10px 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--pv-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 38px;
+}
+.recommend-reason {
+  padding: 6px 12px 0;
+  font-size: 12px;
+  color: #6b4fd8;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.recommend-price {
+  padding: 6px 12px 12px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #d4380d;
 }
 @media (max-width: 768px) {
   .pet-row {

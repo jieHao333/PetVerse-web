@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, MagicStick } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { listMyPets, uploadPetAvatar, updatePetHealth } from '@/api/pet'
+import { assessPetHealth } from '@/api/ai'
 import logo from '@/assets/logo.jpg'
 
 const route = useRoute()
@@ -162,6 +163,62 @@ const onBack = () => {
   if (!window.closed) router.replace('/')
 }
 
+// ===== AI 健康评估 =====
+const healthReport = ref(null)   // 最近一次评估报告
+const assessing = ref(false)     // 评估请求中
+
+// 按年龄字段生成数值年龄（真实宠物按生日换算，虚拟宠物用 age 字段）
+const ageNumber = (pet) => {
+  if (!pet) return null
+  if (pet.type === 'REAL' && pet.birthday) {
+    const birth = new Date(pet.birthday)
+    const now = new Date()
+    let months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
+    if (now.getDate() < birth.getDate()) months -= 1
+    return Math.max(0, Math.floor(months / 12))
+  }
+  return pet.age ?? null
+}
+
+// 组装健康评估入参：仅收集非空字段，健康信息以 health 子对象下发（与对话上下文一致）
+const buildHealthPayload = (pet) => {
+  const payload = { id: pet.id, name: pet.name || '', species: pet.species || '', breed: pet.breed || '' }
+  const age = ageNumber(pet)
+  if (age != null) payload.age = age
+  const health = {}
+  for (const item of HEALTH_ITEMS) {
+    const value = pet[item.key]
+    if (value) health[item.key] = value
+  }
+  if (Object.keys(health).length) payload.health = health
+  return payload
+}
+
+const runAssessment = async () => {
+  if (!current.value || assessing.value) return
+  assessing.value = true
+  try {
+    healthReport.value = await assessPetHealth(buildHealthPayload(current.value))
+    ElMessage.success('AI 健康评估完成')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    assessing.value = false
+  }
+}
+
+// 切换宠物时清空上一只宠物的评估结果，避免张冠李戴
+watch(() => current.value?.id, () => { healthReport.value = null })
+
+// 评级 -> 展示文案 / 颜色（评分环与标签配色）
+const LEVEL_META = {
+  excellent: { text: '优秀', color: '#2ec7a0' },
+  good: { text: '良好', color: '#4a90d9' },
+  fair: { text: '一般', color: '#f5a623' },
+  warning: { text: '需关注', color: '#e8604c' },
+}
+const levelMeta = computed(() => LEVEL_META[healthReport.value?.level] || { text: '—', color: '#909399' })
+
 onMounted(async () => {
   try {
     pets.value = (await listMyPets()) || []
@@ -273,6 +330,74 @@ onMounted(async () => {
                 {{ current[item.key] || item.hint }}
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- AI 健康智能评估：基于档案与健康信息由 LangGraph 多步生成 -->
+        <div v-if="showHealth" class="ai-health-section">
+          <div class="ai-health-head">
+            <div class="ai-health-title">
+              <el-icon class="ai-health-icon"><MagicStick /></el-icon>
+              AI 健康评估
+            </div>
+            <el-button type="primary" round size="small" :loading="assessing" @click="runAssessment">
+              {{ healthReport ? '重新评估' : '开始评估' }}
+            </el-button>
+          </div>
+
+          <div v-if="healthReport" class="ai-health-report">
+            <div class="ai-health-score">
+              <div class="score-ring" :style="{ borderColor: levelMeta.color }">
+                <span class="score-num" :style="{ color: levelMeta.color }">{{ healthReport.score }}</span>
+                <span class="score-unit">分</span>
+              </div>
+              <div class="score-info">
+                <span class="score-level" :style="{ background: levelMeta.color }">{{ levelMeta.text }}</span>
+                <p class="score-summary">{{ healthReport.summary }}</p>
+              </div>
+            </div>
+
+            <div v-if="healthReport.risks?.length" class="report-block">
+              <div class="report-label risk">风险提示</div>
+              <ul class="report-list">
+                <li v-for="(r, i) in healthReport.risks" :key="i">{{ r }}</li>
+              </ul>
+            </div>
+
+            <div v-if="healthReport.suggestions?.length" class="report-block">
+              <div class="report-label">养护建议</div>
+              <ul class="report-list">
+                <li v-for="(s, i) in healthReport.suggestions" :key="i">{{ s }}</li>
+              </ul>
+            </div>
+
+            <div v-if="healthReport.care_plan?.length" class="report-block">
+              <div class="report-label">养护计划</div>
+              <ul class="report-list">
+                <li v-for="(c, i) in healthReport.care_plan" :key="i">{{ c }}</li>
+              </ul>
+            </div>
+
+            <div v-if="healthReport.reminders?.length" class="report-block">
+              <div class="report-label">提醒事项</div>
+              <div class="reminder-tags">
+                <el-tag
+                  v-for="(rm, i) in healthReport.reminders"
+                  :key="i"
+                  :type="rm.urgency === 'high' ? 'danger' : rm.urgency === 'medium' ? 'warning' : 'info'"
+                  effect="light"
+                  size="small"
+                >
+                  {{ rm.type }}：{{ rm.advice }}
+                </el-tag>
+              </div>
+            </div>
+
+            <p class="report-disclaimer">{{ healthReport.disclaimer }}</p>
+          </div>
+
+          <div v-else class="ai-health-empty">
+            由 AI 结合宠物档案与健康信息综合评估，生成健康评分、风险提示与养护计划（不能替代兽医面诊）。
           </div>
         </div>
       </template>
@@ -621,6 +746,119 @@ onMounted(async () => {
   word-break: break-all;
 }
 .health-value.health-hint {
+  color: var(--pv-text-secondary);
+}
+
+/* AI 健康评估卡片 */
+.ai-health-section {
+  max-width: 640px;
+  margin: 20px auto 0;
+  border: 1px solid var(--pv-border);
+  border-radius: 14px;
+  background: #fff;
+  padding: 18px 20px;
+  box-shadow: var(--pv-shadow);
+}
+.ai-health-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ai-health-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--pv-text);
+}
+.ai-health-icon {
+  color: #8b6fe8;
+  font-size: 18px;
+}
+.ai-health-empty {
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--pv-text-secondary);
+}
+.ai-health-report {
+  margin-top: 14px;
+}
+.ai-health-score {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.score-ring {
+  width: 84px;
+  height: 84px;
+  border: 5px solid #4a90d9;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.score-num {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+}
+.score-unit {
+  font-size: 11px;
+  color: var(--pv-text-secondary);
+  margin-top: 2px;
+}
+.score-info {
+  flex: 1;
+  min-width: 0;
+}
+.score-level {
+  display: inline-block;
+  padding: 2px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+.score-summary {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--pv-text);
+}
+.report-block {
+  margin-top: 14px;
+}
+.report-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--pv-text);
+  margin-bottom: 6px;
+}
+.report-label.risk {
+  color: #e8604c;
+}
+.report-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--pv-text);
+}
+.reminder-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.report-disclaimer {
+  margin: 14px 0 0;
+  padding-top: 10px;
+  border-top: 1px dashed var(--pv-border);
+  font-size: 12px;
   color: var(--pv-text-secondary);
 }
 
