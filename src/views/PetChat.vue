@@ -50,7 +50,7 @@ const currentSessionId = ref(null) // 当前会话 ID；null 表示待创建的�
 const loadingPet = ref(true) // 宠物信息加载中
 const loadingSessions = ref(false) // 会话列表加载中
 const loadingHistory = ref(false) // 历史对话加载中
-// 会话消息列表：[{ role: 'user' | 'assistant', content, ts, thinking, stopped, error }]
+// 会话消息列表：[{ role: 'user' | 'assistant', content, ts, thinking, stopped, error, failed }]
 const messages = ref([])
 const inputText = ref('') // 输入框内容
 const sending = ref(false) // 是否正在流式生成中
@@ -251,10 +251,32 @@ const handleSend = () => {
   const text = inputText.value.trim()
   // 生成中不允许再次发送
   if (!text || sending.value || !pet.value) return
+  inputText.value = ''
+  sendText(text)
+}
 
+// 失败重发：移除尾部失败的这一轮（失败的助手气泡 + 其对应的用户消息）后重新发送原文。
+// 说明：后端发 error 事件时不会落库本轮内容，重发不会造成重复；
+// 网络中断场景后端可能已兑底保存部分回复，重发会在历史中多出一条记录，属可接受的轻量代价。
+const regenerate = (idx) => {
+  if (sending.value) return
+  const msg = messages.value[idx]
+  if (!msg || msg.role !== 'assistant' || !msg.failed) return
+  // 向前找本轮对应的用户消息（重发时一并移除，避免消息重复上屏）
+  let userIdx = -1
+  for (let i = idx - 1; i >= 0; i--) {
+    if (messages.value[i].role === 'user') { userIdx = i; break }
+  }
+  if (userIdx < 0) return
+  const text = (messages.value[userIdx].content || '').trim()
+  if (!text) return
+  messages.value.splice(userIdx)
+  sendText(text)
+}
+
+const sendText = (text) => {
   // 用户消息立即上屏（乐观渲染），并写入本地会话状态数组；petId 用于回显本轮咨询的宠物
   messages.value.push({ role: 'user', content: text, petId: pet.value.id, ts: nowSec() })
-  inputText.value = ''
   // 顾问侧先出现「思考中」占位气泡，首个 delta 到达后替换为流式文本
   messages.value.push({ role: 'assistant', content: '', thinking: true, ts: nowSec() })
   sending.value = true
@@ -318,15 +340,18 @@ const handleSend = () => {
       // 会话标题由后端用首条消息自动命名，结束后刷新列表展示最新标题
       refreshSessions()
     },
+    onRetry: (attempt) => {
+      // 连接阶段自动重连（网络闪断）：轻提示安抚，不打断界面
+      ElMessage({ message: `网络波动，正在自动重连（第 ${attempt} 次）...`, type: 'info', duration: 2000 })
+    },
     onError: (msg) => {
+      // 失败时保留气泡并标记 failed，提供「重新生成」入口：
+      // 思考占位气泡转为失败态，已有部分内容的气泡追加错误说明
       const last = messages.value[messages.value.length - 1]
-      const hasContent = last?.role === 'assistant' && !last.thinking && last.content
-      if (hasContent) {
-        // 已有部分流式内容：不打断，仅在气泡后补提示
+      if (last?.role === 'assistant') {
+        last.thinking = false
         last.error = msg
-      } else if (last?.role === 'assistant') {
-        // 尚无内容：移除思考占位气泡
-        messages.value.pop()
+        last.failed = true
       }
       ElMessage.error(msg)
       finishStream()
@@ -492,7 +517,7 @@ const onEnterKey = (e) => {
                     {{ (msgPet(msg)?.name || '宠')[0] }}
                   </el-avatar>
                   <div class="bubble-col">
-                    <div class="bubble" :class="{ thinking: msg.thinking }">
+                    <div class="bubble" :class="{ thinking: msg.thinking, failed: msg.failed }">
                       <!-- 思考中：三个跳动圆点 -->
                       <template v-if="msg.thinking">
                         <span class="dot"></span>
@@ -505,6 +530,14 @@ const onEnterKey = (e) => {
                         <span v-if="msg.error" class="err-mark">{{ msg.error }}</span>
                       </template>
                     </div>
+                    <!-- 失败气泡：一键重新生成本轮回复 -->
+                    <el-button
+                      v-if="msg.failed && !sending"
+                      size="small"
+                      round
+                      class="regen-btn"
+                      @click="regenerate(idx)"
+                    >重新生成</el-button>
                     <span v-if="msg.ts" class="msg-time">{{ formatMsgTime(msg.ts) }}</span>
                   </div>
                 </div>
@@ -518,6 +551,7 @@ const onEnterKey = (e) => {
                 type="textarea"
                 :autosize="{ minRows: 1, maxRows: 3 }"
                 resize="none"
+                maxlength="2000"
                 :placeholder="`咨询 ${pet.name} 的健康、习性等问题...`"
                 class="chat-textarea"
                 @keydown.enter="onEnterKey"
@@ -861,6 +895,15 @@ const onEnterKey = (e) => {
   margin-top: 4px;
   font-size: 12px;
   color: var(--el-color-danger, #c45656);
+}
+/* 失败气泡：醒目边框提示异常，配「重新生成」按钮一键重发 */
+.bubble.failed {
+  border-color: var(--el-color-danger-light-7, #fde2e2);
+}
+.regen-btn {
+  margin-top: 6px;
+  margin-left: 0;
+  font-size: 12px;
 }
 
 /* 思考中三个跳动圆点 */
