@@ -116,6 +116,8 @@ const loadHistory = async (sessionId) => {
       content: m.content,
       petId: m.petId || null,
       ts: m.ts,
+      // 被用户中止生成的回复在历史里恢复「（已停止）」标记，与停止当下的界面表现一致
+      stopped: !!m.interrupted,
     }))
     scrollToBottom()
   } catch (e) {
