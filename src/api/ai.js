@@ -244,6 +244,21 @@ export const listChatSessions = () =>
 export const deleteChatSession = (sessionId) =>
   request.delete(`/ai/chat/sessions/${sessionId}`)
 
+/**
+ * 查询当前用户的全部长期记忆（跨会话，最近更新在前）
+ * data 为 { memories: [{ key, scope, petId, petName, kind, content, createdAt, updatedAt }] }
+ */
+export const getChatMemories = () => request.get('/ai/chat/memories')
+
+/**
+ * 删除单条长期记忆
+ * @param {string} key 记忆标识（列表项的 key）
+ * @param {string} scope 归属：user 用户级 / pet 宠物级
+ * @param {number|string} [petId] 宠物级记忆的归属宠物 ID（scope=pet 时必传）
+ */
+export const deleteChatMemory = (key, scope, petId) =>
+  request.delete(`/ai/chat/memories/${key}`, { params: { scope, petId } })
+
 /* ---------------- 以下为新增 AI 能力（均为普通 JSON 接口，走 axios 封装） ---------------- */
 
 /**

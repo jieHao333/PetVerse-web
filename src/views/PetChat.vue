@@ -1,14 +1,17 @@
 <script setup>
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Delete, Plus } from '@element-plus/icons-vue'
+import { Collection, Delete, Plus } from '@element-plus/icons-vue'
 import { getMyPet, listMyPets } from '@/api/pet'
 import {
   chatStream,
   getChatHistory,
   listChatSessions,
   deleteChatSession,
+  getChatMemories,
+  deleteChatMemory,
 } from '@/api/ai'
+import { petAgeInfo, realPetMonths } from '@/utils/pet'
 
 const router = useRouter()
 
@@ -27,12 +30,8 @@ const formatMsgTime = (ts) => {
 // 真实宠物按生日计算年龄，不足 1 岁展示月龄；虚拟宠物直接用年龄字段
 const petAgeText = (p) => {
   if (p.type !== 'REAL') return p.age != null ? `${p.age} 岁` : ''
-  if (!p.birthday) return ''
-  const birth = new Date(p.birthday)
-  const now = new Date()
-  let months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
-  if (now.getDate() < birth.getDate()) months -= 1
-  if (months < 0) months = 0
+  const months = realPetMonths(p.birthday)
+  if (months == null) return ''
   return months >= 12 ? `${Math.floor(months / 12)} 岁` : `${months} 个月`
 }
 
@@ -248,6 +247,78 @@ const onDeleteSession = async (s) => {
   }
 }
 
+// ---------- 长期记忆管理 ----------
+const memoryVisible = ref(false) // 记忆管理弹窗可见
+const loadingMemories = ref(false) // 记忆列表加载中
+const memories = ref([]) // 全部长期记忆（最近更新在前）
+
+// 记忆归类标签（与后端 kind 枚举对应）
+const KIND_LABELS = { preference: '偏好', habit: '习性', fact: '事实' }
+
+// 记忆更新时间（秒）转 YYYY-MM-DD HH:mm
+const formatMemoryTime = (ts) => {
+  if (!ts) return ''
+  const d = new Date(ts * 1000)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// 记忆分组：我的偏好（用户级）在前，宠物级按 petId 分组在后；
+// 宠物名优先 petById 映射（实时），写入时快照 petName 兼，宠物已删除时归「通用记忆」
+const memoryGroups = computed(() => {
+  const groups = []
+  const mine = memories.value.filter((m) => m.scope === 'user')
+  if (mine.length) {
+    groups.push({ title: '我的偏好', items: mine })
+  }
+  const petMap = new Map()
+  for (const m of memories.value) {
+    if (m.scope !== 'pet') continue
+    const key = String(m.petId || '0')
+    if (!petMap.has(key)) petMap.set(key, [])
+    petMap.get(key).push(m)
+  }
+  for (const [petId, items] of petMap) {
+    const p = petById(petId)
+    groups.push({ title: p ? `${p.name}的记忆` : '通用记忆', items })
+  }
+  return groups
+})
+
+// 打开记忆弹窗：拉取最新列表
+const openMemories = async () => {
+  memoryVisible.value = true
+  loadingMemories.value = true
+  try {
+    const data = await getChatMemories()
+    memories.value = data?.memories || []
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    loadingMemories.value = false
+  }
+}
+
+// 删除单条长期记忆（带确认）
+const onDeleteMemory = async (m) => {
+  try {
+    await ElMessageBox.confirm('删除这条记忆后，AI 将不再记得该信息，确定删除？', '删除确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  try {
+    await deleteChatMemory(m.key, m.scope, m.scope === 'pet' ? m.petId : undefined)
+    memories.value = memories.value.filter((x) => x.key !== m.key)
+    if (!memories.value.length) ElMessage.success('记忆已删除')
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
+}
+
 // ---------- 发送与流式渲染 ----------
 const handleSend = () => {
   const text = inputText.value.trim()
@@ -290,7 +361,9 @@ const sendText = (text) => {
     name: pet.value.name,
     species: pet.value.species,
     breed: pet.value.breed,
-    age: pet.value.age,
+    // 档案年龄按生日换算后精确下发（age 整岁 + ageText 含月龄文本，与身份卡展示一致）；
+    // 真实宠物的 pet.age 列恒为 0，直接下发会让 AI 误判成 0 岁
+    ...petAgeInfo(pet.value),
     level: pet.value.level,
     signStreak: pet.value.signStreak,
     description: pet.value.description,
@@ -437,7 +510,12 @@ const onEnterKey = (e) => {
             <div class="side-section session-section">
               <div class="side-title-row">
                 <span class="side-title">会话记录</span>
-                <el-button size="small" round :icon="Plus" @click="newSession">新会话</el-button>
+                <div class="side-actions">
+                  <el-tooltip content="长期记忆" placement="top">
+                    <el-button size="small" round :icon="Collection" @click="openMemories" />
+                  </el-tooltip>
+                  <el-button size="small" round :icon="Plus" @click="newSession">新会话</el-button>
+                </div>
               </div>
               <el-scrollbar class="session-scroll">
                 <div v-if="loadingSessions" class="session-empty">加载中...</div>
@@ -574,6 +652,34 @@ const onEnterKey = (e) => {
         </div>
       </el-card>
     </div>
+
+    <!-- 长期记忆管理弹窗：AI 跨会话记住的用户 / 宠物偏好，可查看与删除 -->
+    <el-dialog
+      v-model="memoryVisible"
+      title="AI 长期记忆"
+      width="560px"
+      append-to-body
+    >
+      <div v-loading="loadingMemories" class="memory-body">
+        <p class="memory-tip">AI 在对话中沉淀的长期记忆（跨会话生效），删除后不再被引用</p>
+        <template v-if="memoryGroups.length">
+          <div v-for="group in memoryGroups" :key="group.title" class="memory-group">
+            <div class="memory-group-title">{{ group.title }}</div>
+            <div v-for="m in group.items" :key="m.key" class="memory-item">
+              <el-tag size="small" effect="plain" round class="memory-kind">
+                {{ KIND_LABELS[m.kind] || '偏好' }}
+              </el-tag>
+              <span class="memory-content">{{ m.content }}</span>
+              <span class="memory-time">{{ formatMemoryTime(m.updatedAt) }}</span>
+              <el-icon class="memory-del" @click="onDeleteMemory(m)"><Delete /></el-icon>
+            </div>
+          </div>
+        </template>
+        <div v-else-if="!loadingMemories" class="memory-empty">
+          多和 AI 聊聊，它会慢慢记住你和宠物的偏好
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -632,6 +738,11 @@ const onEnterKey = (e) => {
 }
 .side-title-row .side-title {
   margin-bottom: 0;
+}
+.side-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* 宠物列表项 */
@@ -958,6 +1069,69 @@ const onEnterKey = (e) => {
 }
 .stop-btn {
   font-weight: 600;
+}
+
+/* ---------- 长期记忆弹窗 ---------- */
+.memory-body {
+  min-height: 120px;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.memory-tip {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+}
+.memory-group {
+  margin-bottom: 14px;
+}
+.memory-group-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--pv-text);
+  margin-bottom: 8px;
+}
+.memory-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: var(--pv-tint, #fafafa);
+  border: 1px solid var(--pv-border);
+}
+.memory-kind {
+  flex-shrink: 0;
+}
+.memory-content {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--pv-text);
+  line-height: 1.5;
+}
+.memory-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--pv-text-secondary);
+}
+.memory-del {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: var(--pv-text-secondary);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.memory-del:hover {
+  color: var(--el-color-danger, #c45656);
+}
+.memory-empty {
+  padding: 40px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--pv-text-secondary);
 }
 
 /* ---------- 移动端 ---------- */

@@ -5,6 +5,7 @@ import { Plus, MagicStick } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { listMyPets, uploadPetAvatar, updatePetHealth } from '@/api/pet'
 import { assessPetHealth } from '@/api/ai'
+import { petAgeInfo, realPetMonths } from '@/utils/pet'
 import logo from '@/assets/logo.jpg'
 
 const route = useRoute()
@@ -37,12 +38,8 @@ const select = (pet) => {
 const ageText = (pet) => {
   if (!pet) return ''
   if (pet.type !== 'REAL') return pet.age ? `${pet.age}岁` : ''
-  if (!pet.birthday) return ''
-  const birth = new Date(pet.birthday)
-  const now = new Date()
-  let months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
-  if (now.getDate() < birth.getDate()) months -= 1
-  if (months < 0) months = 0
+  const months = realPetMonths(pet.birthday)
+  if (months == null) return ''
   return months >= 12 ? `${Math.floor(months / 12)}岁` : `${months}个月`
 }
 
@@ -167,24 +164,13 @@ const onBack = () => {
 const healthReport = ref(null)   // 最近一次评估报告
 const assessing = ref(false)     // 评估请求中
 
-// 按年龄字段生成数值年龄（真实宠物按生日换算，虚拟宠物用 age 字段）
-const ageNumber = (pet) => {
-  if (!pet) return null
-  if (pet.type === 'REAL' && pet.birthday) {
-    const birth = new Date(pet.birthday)
-    const now = new Date()
-    let months = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth())
-    if (now.getDate() < birth.getDate()) months -= 1
-    return Math.max(0, Math.floor(months / 12))
-  }
-  return pet.age ?? null
-}
-
-// 组装健康评估入参：仅收集非空字段，健康信息以 health 子对象下发（与对话上下文一致）
+// 组装健康评估入参：仅收集非空字段，健康信息以 health 子对象下发（与对话上下文一致）；
+// 年龄按生日换算（age 整岁 + ageText 含月龄文本，与身份卡展示 / 对话入口同一口径）
 const buildHealthPayload = (pet) => {
   const payload = { id: pet.id, name: pet.name || '', species: pet.species || '', breed: pet.breed || '' }
-  const age = ageNumber(pet)
+  const { age, ageText: agePrecise } = petAgeInfo(pet)
   if (age != null) payload.age = age
+  if (agePrecise) payload.ageText = agePrecise
   const health = {}
   for (const item of HEALTH_ITEMS) {
     const value = pet[item.key]
