@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Collection, Delete, Plus } from '@element-plus/icons-vue'
+import { Collection, Delete, Paperclip, Plus } from '@element-plus/icons-vue'
 import { getMyPet, listMyPets } from '@/api/pet'
 import {
   chatStream,
@@ -10,6 +10,7 @@ import {
   deleteChatSession,
   getChatMemories,
   deleteChatMemory,
+  uploadChatMedia,
 } from '@/api/ai'
 import { petAgeInfo, realPetMonths } from '@/utils/pet'
 
@@ -25,6 +26,48 @@ const formatMsgTime = (ts) => {
   const hh = String(d.getHours()).padStart(2, '0')
   const mm = String(d.getMinutes()).padStart(2, '0')
   return `${hh}:${mm}`
+}
+
+// ---------- 多模态附件（图片 / 音频 / 视频） ----------
+// 与后端 app/media.py 的判定规则对齐：MIME 主类型优先，扩展名兜底
+const MEDIA_RULES = {
+  image: {
+    mimes: ['image/'],
+    exts: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'],
+    label: '图片', maxMB: 10, accept: 'image/*',
+  },
+  audio: {
+    mimes: ['audio/'],
+    exts: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'],
+    label: '音频', maxMB: 20, accept: 'audio/*',
+  },
+  video: {
+    mimes: ['video/'],
+    exts: ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv'],
+    label: '视频', maxMB: 50, accept: 'video/*',
+  },
+}
+const MEDIA_ACCEPT = Object.values(MEDIA_RULES).map((r) => r.accept).join(',')
+// 单条消息附件数上限（与后端 CHAT_MAX_ATTACHMENTS 一致）
+const MAX_ATTACHMENTS = 4
+
+const detectMediaKind = (file) => {
+  const mime = file.type || ''
+  for (const [kind, rule] of Object.entries(MEDIA_RULES)) {
+    if (rule.mimes.some((m) => mime.startsWith(m))) return kind
+  }
+  const ext = (file.name || '').split('.').pop().toLowerCase()
+  for (const [kind, rule] of Object.entries(MEDIA_RULES)) {
+    if (rule.exts.includes(ext)) return kind
+  }
+  return null
+}
+
+const formatSize = (bytes) => {
+  if (bytes == null) return ''
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`
 }
 
 // 真实宠物按生日计算年龄，不足 1 岁展示月龄；虚拟宠物直接用年龄字段
@@ -55,6 +98,83 @@ const inputText = ref('') // 输入框内容
 const sending = ref(false) // 是否正在流式生成中
 const scrollbarRef = ref(null) // 消息区 el-scrollbar 实例
 let streamCtrl = null // 当前流式请求控制器（{ abort }）
+
+// ---------- 待发送附件（选择后立即上传，发送时一并携带） ----------
+// pendingFiles 项：{ id, kind, name, size, previewUrl, uploading, failed, att }
+// att 为后端返回的附件信息（上传成功后才有，发送时原样放进 chatStream.attachments）
+const pendingFiles = ref([])
+const fileInputRef = ref(null)
+const readyAttachmentCount = computed(
+  () => pendingFiles.value.filter((f) => f.att && !f.failed).length,
+)
+let fileIdSeq = 0
+
+// 选择附件（点击回形针）：弹出系统文件选择器
+const pickFiles = () => {
+  if (sending.value) return
+  fileInputRef.value?.click()
+}
+
+// 选中文件：本地校验（类型 / 大小 / 数量）后立即逐个上传，失败项留在列表中标红可移除
+const onFilesChosen = (e) => {
+  const files = Array.from(e.target.files || [])
+  e.target.value = '' // 清空 value，重复选择同一文件也能触发 change
+  for (const file of files) {
+    if (pendingFiles.value.length >= MAX_ATTACHMENTS) {
+      ElMessage.warning(`单条消息最多携带 ${MAX_ATTACHMENTS} 个附件`)
+      break
+    }
+    const kind = detectMediaKind(file)
+    if (!kind) {
+      ElMessage.error(`「${file.name}」不是支持的图片 / 音频 / 视频文件`)
+      continue
+    }
+    const rule = MEDIA_RULES[kind]
+    if (file.size > rule.maxMB * 1024 * 1024) {
+      ElMessage.error(`${rule.label}不能超过 ${rule.maxMB}MB`)
+      continue
+    }
+    const item = {
+      id: ++fileIdSeq,
+      kind,
+      name: file.name || '附件',
+      size: file.size,
+      // 图片用本地 blob 预览（上传成功后仍用该地址展示，回放 URL 只在历史消息里用）
+      previewUrl: kind === 'image' ? URL.createObjectURL(file) : '',
+      uploading: true,
+      failed: false,
+      att: null,
+    }
+    pendingFiles.value.push(item)
+    // 取数组里的代理对象做后续回填：闭包直接持有原始对象的话，
+    // att/uploading 的变更不会触发视图更新（Vue 3 深层代理只作用于经数组访问的引用）
+    uploadPending(pendingFiles.value[pendingFiles.value.length - 1], file)
+  }
+}
+
+// 上传单个附件：成功回填 att；失败标记 failed（保留在待发送条里，可手动移除后重试——重新选择）
+const uploadPending = async (item, file) => {
+  try {
+    const att = await uploadChatMedia(file)
+    item.att = att
+    item.uploading = false
+  } catch (err) {
+    item.uploading = false
+    item.failed = true
+    ElMessage.error(`「${item.name}」上传失败：${err.message}`)
+  }
+}
+
+// 移除待发送附件（释放本地 blob 预览的引用）
+const removePendingFile = (item) => {
+  if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+  pendingFiles.value = pendingFiles.value.filter((f) => f.id !== item.id)
+}
+
+// 发送后清空待发送附件（不 revoke previewUrl：乐观气泡继续用它渲染）
+const clearPendingFiles = () => {
+  pendingFiles.value = []
+}
 
 // 宠物激活态比较键：宠物 ID 为雪花 ID（后端 Long 序列化为字符串），用字符串比较避免 Number() 精度丢失
 const petKey = (p) => (p == null ? null : String(p.id))
@@ -117,6 +237,8 @@ const loadHistory = async (sessionId) => {
       ts: m.ts,
       // 被用户中止生成的回复在历史里恢复「（已停止）」标记，与停止当下的界面表现一致
       stopped: !!m.interrupted,
+      // 多模态附件（仅用户消息，OSS 公网 URL 直接回放）
+      attachments: (m.attachments || []).filter((a) => a && a.type && a.url).map((a) => ({ ...a })),
     }))
     scrollToBottom()
   } catch (e) {
@@ -322,10 +444,14 @@ const onDeleteMemory = async (m) => {
 // ---------- 发送与流式渲染 ----------
 const handleSend = () => {
   const text = inputText.value.trim()
-  // 生成中不允许再次发送
-  if (!text || sending.value || !pet.value) return
+  // 生成中不允许再次发送；文字与已上传成功的附件至少其一
+  const readyFiles = pendingFiles.value.filter((f) => f.att && !f.failed)
+  if (sending.value || !pet.value) return
+  if (!text && !readyFiles.length) return
   inputText.value = ''
-  sendText(text)
+  const attachments = readyFiles.map((f) => ({ ...f.att }))
+  clearPendingFiles()
+  sendText(text, attachments)
 }
 
 // 失败重发：移除尾部失败的这一轮（失败的助手气泡 + 其对应的用户消息）后重新发送原文。
@@ -341,15 +467,20 @@ const regenerate = (idx) => {
     if (messages.value[i].role === 'user') { userIdx = i; break }
   }
   if (userIdx < 0) return
-  const text = (messages.value[userIdx].content || '').trim()
-  if (!text) return
+  const userMsg = messages.value[userIdx]
+  const text = (userMsg.content || '').trim()
+  // 重发携带原轮的全部附件（附件已上传过，直接复用附件信息）
+  if (!text && !(userMsg.attachments || []).length) return
   messages.value.splice(userIdx)
-  sendText(text)
+  sendText(text, (userMsg.attachments || []).map((a) => ({ ...a })))
 }
 
-const sendText = (text) => {
+const sendText = (text, attachments = []) => {
   // 用户消息立即上屏（乐观渲染），并写入本地会话状态数组；petId 用于回显本轮咨询的宠物
-  messages.value.push({ role: 'user', content: text, petId: pet.value.id, ts: nowSec() })
+  messages.value.push({
+    role: 'user', content: text, petId: pet.value.id, ts: nowSec(),
+    attachments: attachments.filter((a) => a && a.type && a.url),
+  })
   // 顾问侧先出现「思考中」占位气泡，首个 delta 到达后替换为流式文本
   messages.value.push({ role: 'assistant', content: '', thinking: true, ts: nowSec() })
   sending.value = true
@@ -386,6 +517,7 @@ const sendText = (text) => {
     message: text,
     pet: petPayload,
     sessionId: currentSessionId.value,
+    attachments,
     onMeta: ({ sessionId }) => {
       // 首帧 meta：后端自动新建会话后回传会话 ID，前端绑定并刷新会话列表
       if (sessionId == null) return
@@ -605,7 +737,38 @@ const onEnterKey = (e) => {
                         <span class="dot"></span>
                       </template>
                       <template v-else>
-                        <span class="bubble-text">{{ msg.content }}</span>
+                        <!-- 用户消息的多模态附件：图片（点击放大）/ 视频 / 音频（含转写文本） -->
+                        <div
+                          v-if="msg.role === 'user' && msg.attachments?.length"
+                          class="bubble-media"
+                        >
+                          <template v-for="(att, aIdx) in msg.attachments" :key="aIdx">
+                            <el-image
+                              v-if="att.type === 'image'"
+                              :src="att.url"
+                              :preview-src-list="[att.url]"
+                              fit="cover"
+                              hide-on-click-modal
+                              class="media-img"
+                              preview-teleported
+                            />
+                            <video
+                              v-else-if="att.type === 'video'"
+                              :src="att.url"
+                              controls
+                              preload="metadata"
+                              class="media-video"
+                            ></video>
+                            <div v-else-if="att.type === 'audio'" class="media-audio">
+                              <div class="audio-name">{{ att.name || '语音消息' }}</div>
+                              <audio :src="att.url" controls preload="metadata" class="audio-player"></audio>
+                              <div v-if="att.transcript" class="audio-transcript">
+                                转写：{{ att.transcript }}
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                        <span v-if="msg.content" class="bubble-text">{{ msg.content }}</span>
                         <span v-if="msg.stopped" class="stop-mark">（已停止）</span>
                         <span v-if="msg.error" class="err-mark">{{ msg.error }}</span>
                       </template>
@@ -626,27 +789,68 @@ const onEnterKey = (e) => {
 
             <!-- 底部输入区 -->
             <div class="chat-input">
-              <el-input
-                v-model="inputText"
-                type="textarea"
-                :autosize="{ minRows: 1, maxRows: 3 }"
-                resize="none"
-                maxlength="2000"
-                :placeholder="`咨询 ${pet.name} 的健康、习性等问题...`"
-                class="chat-textarea"
-                @keydown.enter="onEnterKey"
+              <!-- 待发送附件条：选择后立即上传，全部就绪即可随消息一并发出 -->
+              <div v-if="pendingFiles.length" class="pending-files">
+                <div
+                  v-for="f in pendingFiles"
+                  :key="f.id"
+                  class="pending-file"
+                  :class="{ failed: f.failed }"
+                >
+                  <img v-if="f.kind === 'image' && f.previewUrl" :src="f.previewUrl" class="pf-thumb" alt="" />
+                  <div v-else class="pf-kind">{{ MEDIA_RULES[f.kind]?.label || '附件' }}</div>
+                  <div class="pf-info">
+                    <div class="pf-name">{{ f.name }}</div>
+                    <div class="pf-sub">
+                      {{ MEDIA_RULES[f.kind]?.label }} · {{ formatSize(f.size) }}
+                    </div>
+                  </div>
+                  <span v-if="f.uploading" class="pf-state">上传中...</span>
+                  <span v-else-if="f.failed" class="pf-state failed">上传失败</span>
+                  <el-icon class="pf-remove" @click="removePendingFile(f)"><Delete /></el-icon>
+                </div>
+              </div>
+              <div class="input-row">
+                <el-tooltip content="添加图片 / 音频 / 视频" placement="top">
+                  <el-button
+                    round
+                    :icon="Paperclip"
+                    class="attach-btn"
+                    :disabled="sending"
+                    @click="pickFiles"
+                  />
+                </el-tooltip>
+                <el-input
+                  v-model="inputText"
+                  type="textarea"
+                  :autosize="{ minRows: 1, maxRows: 3 }"
+                  resize="none"
+                  maxlength="2000"
+                  :placeholder="`咨询 ${pet.name} 的健康、习性等问题，也可以直接发送照片 / 语音...`"
+                  class="chat-textarea"
+                  @keydown.enter="onEnterKey"
+                />
+                <el-button
+                  v-if="!sending"
+                  type="primary"
+                  round
+                  class="send-btn"
+                  :disabled="!inputText.trim() && !readyAttachmentCount"
+                  @click="handleSend"
+                >
+                  发送
+                </el-button>
+                <el-button v-else round class="send-btn stop-btn" @click="handleStop">停止</el-button>
+              </div>
+              <!-- 隐藏的附件选择输入框（accept 限定图片 / 音频 / 视频，可多选） -->
+              <input
+                ref="fileInputRef"
+                type="file"
+                :accept="MEDIA_ACCEPT"
+                multiple
+                hidden
+                @change="onFilesChosen"
               />
-              <el-button
-                v-if="!sending"
-                type="primary"
-                round
-                class="send-btn"
-                :disabled="!inputText.trim()"
-                @click="handleSend"
-              >
-                发送
-              </el-button>
-              <el-button v-else round class="send-btn stop-btn" @click="handleStop">停止</el-button>
             </div>
           </div>
         </div>
@@ -1055,10 +1259,19 @@ const onEnterKey = (e) => {
 /* ---------- 底部输入区 ---------- */
 .chat-input {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 24px 20px;
+  border-top: 1px solid var(--pv-border);
+}
+.input-row {
+  display: flex;
   align-items: flex-end;
   gap: 12px;
-  padding: 16px 24px 20px;
-  border-top: 1px solid var(--pv-border);
+}
+.attach-btn {
+  flex-shrink: 0;
+  margin-bottom: 1px;
 }
 .chat-textarea {
   flex: 1;
@@ -1069,6 +1282,134 @@ const onEnterKey = (e) => {
 }
 .stop-btn {
   font-weight: 600;
+}
+
+/* 待发送附件条 */
+.pending-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pending-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--pv-tint, #fafafa);
+  border: 1px solid var(--pv-border);
+  max-width: 240px;
+}
+.pending-file.failed {
+  border-color: var(--el-color-danger-light-5, #fbc4c4);
+}
+.pf-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.pf-kind {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--pv-text-secondary);
+  background: var(--pv-tint);
+}
+.pf-info {
+  min-width: 0;
+}
+.pf-name {
+  font-size: 12px;
+  color: var(--pv-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.pf-sub {
+  font-size: 11px;
+  color: var(--pv-text-secondary);
+  margin-top: 2px;
+}
+.pf-state {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--pv-text-secondary);
+}
+.pf-state.failed {
+  color: var(--el-color-danger, #c45656);
+}
+.pf-remove {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: var(--pv-text-secondary);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.pf-remove:hover {
+  color: var(--el-color-danger, #c45656);
+}
+
+/* 气泡内多模态附件 */
+.bubble-media {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+  max-width: 100%;
+}
+.media-img {
+  width: 200px;
+  max-width: 100%;
+  height: auto;
+  max-height: 240px;
+  border-radius: 10px;
+  cursor: zoom-in;
+  display: block;
+}
+/* el-image 的内层 img 需要显式约束宽高，否则按原图尺寸溢出气泡 */
+.media-img :deep(img) {
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+  object-fit: contain;
+}
+.media-video {
+  width: 240px;
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 10px;
+  display: block;
+  background: #000;
+}
+.media-audio {
+  min-width: 220px;
+  max-width: 100%;
+}
+.audio-name {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.audio-player {
+  width: 100%;
+  height: 36px;
+}
+.audio-transcript {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.85;
 }
 
 /* ---------- 长期记忆弹窗 ---------- */

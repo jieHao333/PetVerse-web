@@ -23,9 +23,11 @@ import router from '@/router'
  * 4. 网络类异常统一中文话术，不透出 "Failed to fetch" 这类英文技术信息。
  *
  * @param {Object} options
- * @param {string} options.message 用户消息
+ * @param {string} options.message 用户消息（纯附件发送时可为空串）
  * @param {Object} options.pet 当前咨询的宠物画像（id/name/species/breed/age 等）
  * @param {number|string|null} [options.sessionId] 会话 ID；缺省时后端自动新建会话并通过 meta 事件回传
+ * @param {Array} [options.attachments] 多模态附件列表 [{ type, url, mime, name, size }]，
+ *   由 uploadChatMedia 上传后获得；图片走视觉模型、音频自动转写、视频以文字占位
  * @param {Function} [options.onMeta] 会话元信息回调：({ sessionId }) => void
  * @param {Function} [options.onDelta] 增量回调：(content) => void
  * @param {Function} [options.onDone] 正常结束回调：() => void
@@ -33,7 +35,7 @@ import router from '@/router'
  * @param {Function} [options.onRetry] 连接阶段自动重连回调：(attempt) => void，attempt 从 1 开始
  * @returns {{ abort: () => void }} 中断控制器，供「停止生成」按钮调用
  */
-export function chatStream({ message, pet, sessionId, onMeta, onDelta, onDone, onError, onRetry }) {
+export function chatStream({ message, pet, sessionId, attachments, onMeta, onDelta, onDone, onError, onRetry }) {
   const controller = new AbortController()
 
   // 连接阶段重试的退避间隔（ms）：总尝试次数 = 间隔数 + 1
@@ -69,6 +71,7 @@ export function chatStream({ message, pet, sessionId, onMeta, onDelta, onDone, o
           message,
           pet,
           ...(sessionId != null ? { sessionId: Number(sessionId) } : {}),
+          ...(attachments?.length ? { attachments } : {}),
         }),
         signal: controller.signal,
       })
@@ -232,7 +235,23 @@ export function chatStream({ message, pet, sessionId, onMeta, onDelta, onDone, o
   }
 }
 
-/** 查询指定会话的历史对话（时间正序），data 为 { sessionId, messages: [{ role, content, petId, ts }] } */
+/**
+ * 上传多模态聊天附件（图片 / 音频 / 视频）
+ * 超时放宽到 120s 与项目内其他上传接口一致；大小上限由后端校验
+ * （图片 10MB / 音频 20MB / 视频 50MB），超限返回业务错误 message
+ * @param {File} file 原始文件对象
+ * @returns {Promise<Object>} { type, url, mime, name, size }，原样放入 chatStream 的 attachments
+ */
+export const uploadChatMedia = (file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return request.post('/ai/chat/upload', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000,
+  })
+}
+
+/** 查询指定会话的历史对话（时间正序），data 为 { sessionId, messages: [{ role, content, petId, ts, attachments }] } */
 export const getChatHistory = (sessionId) =>
   request.get('/ai/chat/history', { params: { sessionId } })
 
