@@ -12,6 +12,7 @@ const router = createRouter({
       children: [
         { path: '', name: 'home', component: () => import('@/views/Home.vue') },
         { path: 'space', name: 'space', component: () => import('@/views/Space.vue') },
+        { path: 'space/:id', name: 'spaceDetail', component: () => import('@/views/SpaceDetail.vue') },
         { path: 'friends', name: 'friends', component: () => import('@/views/Friends.vue') },
         { path: 'pet-chat', name: 'petChat', component: () => import('@/views/PetChat.vue') },
         { path: 'shop', name: 'shop', component: () => import('@/views/Shop.vue') },

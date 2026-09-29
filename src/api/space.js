@@ -3,6 +3,9 @@ import request from './request'
 /** 分页查询圈子动态 */
 export const getSpacePage = (params) => request.get('/space/page', { params })
 
+/** 查询动态详情（后端按当前用户可见性过滤，无权查看时报错） */
+export const getSpaceDetail = (id) => request.get(`/space/${id}`)
+
 /** 发布动态（作者身份由后端从登录令牌解析，无需传入用户ID） */
 export const saveSpace = (data) => request.post('/space', data)
 

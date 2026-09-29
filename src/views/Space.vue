@@ -7,11 +7,8 @@ import { DEFAULT_AVATAR } from '@/utils/avatar'
 import {
   COMMENT_TARGET_SPACE,
   LIKE_TARGET_SPACE,
-  deleteComment,
   getCommentCounts,
-  getCommentPage,
   likeTarget,
-  saveComment,
   unlikeTarget,
 } from '@/api/remark'
 
@@ -63,8 +60,7 @@ const loadSpaces = async () => {
     spaces.value = data.records
     // 后端 Long 统一序列化为字符串（防雪花ID精度丢失），total 需还原为数字供分页组件使用
     total.value = Number(data.total || 0)
-    // 动态列表刷新后重置各条评论区状态，并批量拉取评论数快照
-    commentStateMap.value = {}
+    // 动态列表刷新后批量拉取评论数快照
     loadCommentCounts()
   } catch (e) {
     ElMessage.error(e.message)
@@ -111,10 +107,7 @@ const onToggleLike = async (item) => {
   }
 }
 
-/* ==================== 动态评论互动（评论按钮展开查看该动态下所有评论） ==================== */
-
-// 判断是否本人（Long 已序列化为字符串，统一转字符串比较），本人评论可删除
-const isMine = (userId) => String(userId) === myId
+/* ==================== 动态评论数与详情页跳转 ==================== */
 
 // 每条动态的评论数快照（列表加载后批量拉取，key 为动态ID字符串）
 const commentCountMap = ref({})
@@ -133,134 +126,26 @@ const loadCommentCounts = async () => {
   }
 }
 
-// 每条动态独立的评论区状态：展开/列表/分页/输入框/回复对象
-const commentStateMap = ref({})
+const commentCount = (item) => Number(commentCountMap.value[item.id] || 0)
 
-const commentOf = (spaceId) => {
-  if (!commentStateMap.value[spaceId]) {
-    commentStateMap.value[spaceId] = {
-      open: false,
-      list: [],
-      total: 0,
-      pageNum: 1,
-      pageSize: 10,
-      loading: false,
-      loaded: false,
-      input: '',
-      target: null,
-      submitting: false,
-    }
-  }
-  return commentStateMap.value[spaceId]
+// 新标签页打开动态详情页；focusComment 为真时详情页自动聚焦评论输入框
+const openDetail = (item, focusComment = false) => {
+  const query = focusComment ? { focus: 'comment' } : undefined
+  window.open(router.resolve({ name: 'spaceDetail', params: { id: item.id }, query }).href, '_blank')
 }
 
-// 展示的评论数：已展开加载过用实时总数，否则用批量拉取的快照
-const commentCount = (item) => {
-  const state = commentStateMap.value[item.id]
-  if (state && state.loaded) return state.total
-  return Number(commentCountMap.value[item.id] || 0)
+// 列表页文本截断长度，超出部分以省略号提示，完整内容在详情页查看
+// 媒体占位符（[[media:N]]）仅用于详情页定位，列表展示时剥离
+const CONTENT_LIMIT = 120
+const stripMediaTokens = (text) => (text || '').replace(/\[\[media:\d+\]\]/g, '')
+const isContentTruncated = (item) => stripMediaTokens(item.content).length > CONTENT_LIMIT
+const truncatedContent = (item) => {
+  const content = stripMediaTokens(item.content)
+  return content.length > CONTENT_LIMIT ? `${content.slice(0, CONTENT_LIMIT)}…` : content
 }
 
-const toggleComments = (item) => {
-  const state = commentOf(item.id)
-  state.open = !state.open
-  if (state.open && !state.loaded) {
-    loadComments(item.id)
-  }
-}
-
-const loadComments = async (spaceId, append = false) => {
-  const state = commentOf(spaceId)
-  state.loading = true
-  try {
-    const data = await getCommentPage({
-      targetType: COMMENT_TARGET_SPACE,
-      targetId: spaceId,
-      pageNum: state.pageNum,
-      pageSize: state.pageSize,
-    })
-    const records = data.records || []
-    state.list = append ? [...state.list, ...records] : records
-    state.total = Number(data.total || 0)
-    state.loaded = true
-  } catch (e) {
-    ElMessage.error(e.message)
-  } finally {
-    state.loading = false
-  }
-}
-
-const loadMoreComments = (spaceId) => {
-  const state = commentOf(spaceId)
-  state.pageNum += 1
-  loadComments(spaceId, true)
-}
-
-// 点击回复：comment 为空表示直接评论动态，否则回复某条评论
-const startCommentReply = (spaceId, comment = null) => {
-  const state = commentOf(spaceId)
-  state.open = true
-  if (!state.loaded) {
-    loadComments(spaceId)
-  }
-  state.target = comment
-    ? { userId: comment.userId, nickname: comment.userNickname || `用户${comment.userId}` }
-    : null
-  state.input = ''
-}
-
-const cancelCommentTarget = (spaceId) => {
-  commentOf(spaceId).target = null
-}
-
-const onSubmitComment = async (spaceId) => {
-  const state = commentOf(spaceId)
-  if (!state.input.trim()) {
-    ElMessage.warning('请输入评论内容')
-    return
-  }
-  state.submitting = true
-  try {
-    const comment = await saveComment({
-      targetType: COMMENT_TARGET_SPACE,
-      targetId: spaceId,
-      content: state.input,
-      replyUserId: state.target?.userId || undefined,
-    })
-    // 时间正序展示，新评论直接追加到末尾，同步刷新计数
-    state.list = [...state.list, comment]
-    state.total += 1
-    commentCountMap.value[spaceId] = state.total
-    state.input = ''
-    state.target = null
-    ElMessage.success('评论成功')
-  } catch (e) {
-    ElMessage.error(e.message)
-  } finally {
-    state.submitting = false
-  }
-}
-
-const onDeleteComment = (spaceId, comment) => {
-  ElMessageBox.confirm('确定删除这条评论吗？', '删除评论', {
-    type: 'warning',
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-  })
-    .then(async () => {
-      try {
-        await deleteComment(comment.id)
-        const state = commentOf(spaceId)
-        state.list = state.list.filter((it) => String(it.id) !== String(comment.id))
-        state.total -= 1
-        commentCountMap.value[spaceId] = state.total
-        ElMessage.success('评论已删除')
-      } catch (e) {
-        ElMessage.error(e.message)
-      }
-    })
-    .catch(() => {})
-}
+// 列表页仅展示第一个媒体（图片或视频），其余在详情页查看
+const firstMedia = (item) => item.mediaList?.[0] || null
 
 // 切换每页条数后回到第一页重新加载
 const onSizeChange = () => {
@@ -311,20 +196,33 @@ const beforeUpload = (file) => {
 }
 
 // 自定义上传：先用本地 blob 即时回显，上传成功后替换为 OSS 地址，失败则移除该预览
+// 媒体占位符按触发上传时的光标位置插入正文，详情页据此在对应位置渲染媒体
+const contentInputRef = ref(null)
+
+const currentCursor = () => {
+  const el = contentInputRef.value?.textarea || contentInputRef.value?.input
+  const pos = el?.selectionStart
+  return typeof pos === 'number' ? pos : form.value.content.length
+}
+
 const handleUpload = async ({ file }) => {
   const localUrl = URL.createObjectURL(file)
   const isImage = IMAGE_TYPES.includes(file.type)
+  const cursor = currentCursor()
   form.value.mediaList.push({ mediaType: isImage ? 0 : 1, url: localUrl })
   const index = form.value.mediaList.length - 1
+  const content = form.value.content
+  form.value.content = `${content.slice(0, cursor)}[[media:${index}]]${content.slice(cursor)}`
   uploadingCount.value += 1
   try {
     const res = await uploadSpaceMedia(file)
-    if (index < form.value.mediaList.length && form.value.mediaList[index]?.url === localUrl) {
-      form.value.mediaList[index] = { mediaType: res.mediaType, url: res.url }
+    const pos = form.value.mediaList.findIndex((m) => m.url === localUrl)
+    if (pos > -1) {
+      form.value.mediaList[pos] = { mediaType: res.mediaType, url: res.url }
     }
   } catch (e) {
     const pos = form.value.mediaList.findIndex((m) => m.url === localUrl)
-    if (pos > -1) form.value.mediaList.splice(pos, 1)
+    if (pos > -1) removeMedia(pos)
     ElMessage.error(e.message)
   } finally {
     URL.revokeObjectURL(localUrl)
@@ -332,8 +230,14 @@ const handleUpload = async ({ file }) => {
   }
 }
 
+// 删除媒体时同步清理正文占位符：删掉对应占位符，其后媒体下标整体前移
 const removeMedia = (index) => {
   form.value.mediaList.splice(index, 1)
+  form.value.content = form.value.content.replace(/\[\[media:(\d+)\]\]/g, (match, n) => {
+    const v = Number(n)
+    if (v === index) return ''
+    return v > index ? `[[media:${v - 1}]]` : match
+  })
 }
 
 const onSave = async () => {
@@ -396,19 +300,6 @@ const formatTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 const gotoProfile = (userId) => {
   if (userId) router.push(`/user/${userId}`)
 }
-
-// 媒体九宫格：单张占满一行，两张两列，其余三列
-const mediaGridClass = (item) => {
-  const count = item.mediaList?.length || 0
-  if (count === 1) return 'media-grid single'
-  if (count === 2 || count === 4) return 'media-grid two-col'
-  return 'media-grid'
-}
-
-// 图片预览列表（仅取图片项），供 el-image 放大预览
-const previewImages = (item) => (item.mediaList || []).filter((m) => m.mediaType === 0).map((m) => m.url)
-
-const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
 </script>
 
 <template>
@@ -459,13 +350,13 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
 
       <!-- 动态流 -->
       <div v-loading="loading" class="feed-list">
-        <div v-for="item in spaces" :key="item.id" class="feed-card pv-panel">
+        <div v-for="item in spaces" :key="item.id" class="feed-card pv-panel" @click="openDetail(item)">
           <div class="feed-head">
             <el-avatar :size="40" :src="item.authorAvatar || DEFAULT_AVATAR" class="feed-avatar">
               {{ (item.authorNickname || item.authorUsername || 'U')[0]?.toUpperCase() }}
             </el-avatar>
             <div class="feed-meta">
-              <span class="feed-author" @click="gotoProfile(item.userId)">
+              <span class="feed-author" @click.stop="gotoProfile(item.userId)">
                 {{ item.authorNickname || item.authorUsername }}
               </span>
               <div class="feed-sub">
@@ -476,33 +367,37 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
               </div>
             </div>
             <div v-if="isMySpace(item)" class="feed-actions">
-              <el-button link type="primary" @click="openEdit(item)">编辑</el-button>
-              <el-button link type="danger" @click="onDelete(item)">删除</el-button>
+              <el-button link type="primary" @click.stop="openEdit(item)">编辑</el-button>
+              <el-button link type="danger" @click.stop="onDelete(item)">删除</el-button>
             </div>
           </div>
 
           <div v-if="item.title" class="feed-title">{{ item.title }}</div>
-          <div class="feed-content">{{ item.content }}</div>
+          <!-- 列表页仅展示截断后的部分文本，完整内容点击卡片进详情页查看 -->
+          <div class="feed-content">{{ truncatedContent(item) }}</div>
+          <div v-if="isContentTruncated(item)" class="feed-more">查看全文 →</div>
 
-          <div v-if="item.mediaList && item.mediaList.length" :class="mediaGridClass(item)">
-            <template v-for="(media, idx) in item.mediaList" :key="idx">
+          <!-- 列表页仅展示第一个媒体，全部图片/视频在详情页查看 -->
+          <div v-if="firstMedia(item)" class="media-grid single">
+            <div class="media-wrap">
               <el-image
-                v-if="media.mediaType === 0"
-                :src="media.url"
+                v-if="firstMedia(item).mediaType === 0"
+                :src="firstMedia(item).url"
                 fit="cover"
                 class="media-item"
-                :preview-src-list="previewImages(item)"
-                :initial-index="previewIndex(item, media)"
-                preview-teleported
               />
               <video
                 v-else
-                :src="media.url"
+                :src="firstMedia(item).url"
                 controls
                 preload="metadata"
                 class="media-item media-video"
+                @click.stop
               />
-            </template>
+              <span v-if="item.mediaList.length > 1" class="media-count">
+                共 {{ item.mediaList.length }} 个媒体
+              </span>
+            </div>
           </div>
 
           <div class="feed-footer">
@@ -510,87 +405,15 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
               link
               :class="['like-btn', { liked: item.liked }]"
               :icon="item.liked ? StarFilled : Star"
-              @click="onToggleLike(item)"
+              @click.stop="onToggleLike(item)"
             >
               {{ Number(item.likeCount || 0) > 0 ? Number(item.likeCount) : (item.liked ? '1' : '点赞') }}
             </el-button>
-            <el-button link class="comment-btn" @click="toggleComments(item)">
-              💬 {{ commentOf(item.id).open ? '收起回复' : '评论' }}
+            <!-- 评论入口保留：点击跳转详情页（新标签页）并自动聚焦评论输入框 -->
+            <el-button link class="comment-btn" @click.stop="openDetail(item, true)">
+              💬 评论
               <span v-if="commentCount(item) > 0">({{ commentCount(item) }})</span>
             </el-button>
-          </div>
-
-          <!-- 评论互动区：查看该动态下所有评论，也可参与评论/回复 -->
-          <div v-if="commentOf(item.id).open" class="comment-section">
-            <div v-loading="commentOf(item.id).loading" class="comment-list">
-              <div v-for="c in commentOf(item.id).list" :key="c.id" class="comment-item">
-                <el-avatar :size="28" :src="c.userAvatar || DEFAULT_AVATAR" class="comment-avatar">
-                  {{ (c.userNickname || '宠').slice(0, 1) }}
-                </el-avatar>
-                <div class="comment-body">
-                  <div class="comment-head">
-                    <span class="comment-user" @click="gotoProfile(c.userId)">
-                      {{ c.userNickname || `用户${c.userId}` }}
-                    </span>
-                    <template v-if="c.replyUserId">
-                      <span class="comment-arrow">回复</span>
-                      <span class="comment-user" @click="gotoProfile(c.replyUserId)">
-                        @{{ c.replyUserNickname || `用户${c.replyUserId}` }}
-                      </span>
-                    </template>
-                    <span class="comment-time">{{ formatTime(c.createTime) }}</span>
-                  </div>
-                  <div class="comment-content">{{ c.content }}</div>
-                  <div class="comment-actions">
-                    <el-button link type="primary" size="small" @click="startCommentReply(item.id, c)">回复</el-button>
-                    <el-button
-                      v-if="isMine(c.userId)"
-                      link
-                      type="danger"
-                      size="small"
-                      @click="onDeleteComment(item.id, c)"
-                    >
-                      删除
-                    </el-button>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="commentOf(item.id).list.length < commentOf(item.id).total" class="comment-more">
-                <el-button link type="primary" size="small" @click="loadMoreComments(item.id)">
-                  查看更多评论（已加载 {{ commentOf(item.id).list.length }}/{{ commentOf(item.id).total }}）
-                </el-button>
-              </div>
-              <div
-                v-if="!commentOf(item.id).loading && commentOf(item.id).list.length === 0"
-                class="comment-empty"
-              >
-                还没有人评论，来说两句吧
-              </div>
-            </div>
-
-            <div class="comment-input">
-              <div v-if="commentOf(item.id).target" class="comment-target">
-                回复 @{{ commentOf(item.id).target.nickname }}
-                <el-button link size="small" @click="cancelCommentTarget(item.id)">取消</el-button>
-              </div>
-              <div class="comment-input-row">
-                <el-input
-                  v-model="commentOf(item.id).input"
-                  maxlength="500"
-                  show-word-limit
-                  :placeholder="commentOf(item.id).target ? '回复这条评论…' : '评论这条动态…'"
-                  @keyup.enter="onSubmitComment(item.id)"
-                />
-                <el-button
-                  type="primary"
-                  :loading="commentOf(item.id).submitting"
-                  @click="onSubmitComment(item.id)"
-                >
-                  发布
-                </el-button>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -628,6 +451,7 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
       <el-form :model="form" label-width="70px">
         <el-form-item label="内容" required>
           <el-input
+            ref="contentInputRef"
             v-model.trim="form.content"
             type="textarea"
             :rows="5"
@@ -663,7 +487,9 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
               </div>
             </el-upload>
           </div>
-          <div class="upload-tip">支持 jpg/png/webp/gif 图片（≤5MB）或 mp4 视频（≤50MB），最多 9 个</div>
+          <div class="upload-tip">
+            支持 jpg/png/webp/gif 图片（≤5MB）或 mp4 视频（≤50MB），最多 9 个；上传的媒体将插入到内容中光标所在位置
+          </div>
         </el-form-item>
         <el-form-item label="可见性">
           <el-radio-group v-model="form.visibility">
@@ -765,96 +591,6 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
   color: var(--el-color-warning);
 }
 
-/* 评论互动区 */
-.comment-section {
-  margin-top: 12px;
-  padding: 10px 14px;
-  background: var(--pv-tint);
-  border-radius: 10px;
-}
-.comment-list {
-  min-height: 20px;
-}
-.comment-item {
-  display: flex;
-  gap: 10px;
-  padding: 8px 0;
-}
-.comment-item + .comment-item {
-  border-top: 1px dashed var(--pv-border);
-}
-.comment-avatar {
-  flex-shrink: 0;
-  background: #fff;
-  color: var(--pv-text);
-}
-.comment-body {
-  flex: 1;
-  min-width: 0;
-}
-.comment-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.comment-user {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--pv-text);
-  cursor: pointer;
-}
-.comment-user:hover {
-  text-decoration: underline;
-}
-.comment-arrow {
-  font-size: 12px;
-  color: var(--pv-text-secondary);
-}
-.comment-time {
-  font-size: 12px;
-  color: var(--pv-text-secondary);
-  margin-left: auto;
-}
-.comment-content {
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--pv-text);
-  line-height: 1.6;
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-.comment-actions {
-  margin-top: 2px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.comment-more {
-  padding: 4px 0;
-}
-.comment-empty {
-  padding: 6px 0;
-  font-size: 12px;
-  color: var(--pv-text-secondary);
-}
-.comment-target {
-  margin-bottom: 8px;
-  font-size: 12px;
-  color: var(--pv-text-secondary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.comment-input-row {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-}
-.comment-input-row .el-button {
-  flex-shrink: 0;
-}
-
 /* 动态流 */
 .feed-list {
   display: flex;
@@ -863,6 +599,11 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
 }
 .feed-card {
   padding: 18px 20px;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+.feed-card:hover {
+  box-shadow: var(--pv-shadow);
 }
 .feed-head {
   display: flex;
@@ -914,6 +655,12 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
   white-space: pre-wrap;
   word-break: break-word;
 }
+.feed-more {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pv-ink);
+}
 
 /* 媒体九宫格 */
 .media-grid {
@@ -923,13 +670,23 @@ const previewIndex = (item, media) => previewImages(item).indexOf(media.url)
   margin-top: 12px;
   max-width: 640px;
 }
-.media-grid.two-col {
-  grid-template-columns: repeat(2, 1fr);
-  max-width: 480px;
-}
 .media-grid.single {
   grid-template-columns: 1fr;
-  max-width: 360px;
+  max-width: 240px;
+}
+.media-wrap {
+  position: relative;
+}
+.media-count {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(23, 24, 28, 0.65);
+  border-radius: 4px;
+  padding: 2px 6px;
+  pointer-events: none;
 }
 .media-item {
   width: 100%;
