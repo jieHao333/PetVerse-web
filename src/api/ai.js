@@ -282,10 +282,12 @@ export const deleteChatMemory = (key, scope, petId) =>
 
 /**
  * 宠物健康智能评估
+ * 后端需调用大模型生成报告，耗时常常超过 axios 默认 10s，故单独放宽超时
  * @param {Object} pet 宠物档案（字段与对话接口的 pet 一致，含 health 子对象）
  * @returns {Promise<Object>} { score, level, summary, risks, suggestions, carePlan, reminders, disclaimer }
  */
-export const assessPetHealth = (pet) => request.post('/ai/health/assess', pet)
+export const assessPetHealth = (pet) =>
+  request.post('/ai/health/assess', pet, { timeout: 120000 })
 
 /** 查询某宠物的历史健康评估（时间倒序），data 为 { reports: [...] } */
 export const getHealthHistory = (petId, limit = 10) =>
@@ -293,17 +295,19 @@ export const getHealthHistory = (petId, limit = 10) =>
 
 /**
  * 商品评论 AI 摘要
+ * 后端需聚合评论并调用大模型，耗时可能超过 axios 默认 10s，故放宽超时
  * @param {number|string} productId 商品 ID
  * @returns {Promise<Object>} { sentiment, one_line, pros, cons, keywords, count }
  */
 export const summarizeProductReviews = (productId) =>
-  request.post('/ai/shop/review/summary', { productId: Number(productId) })
+  request.post('/ai/shop/review/summary', { productId: Number(productId) }, { timeout: 120000 })
 
 /**
  * 个性化推荐流
+ * 冷启动 / 强制刷新时后端需调用大模型重算，耗时可能超过 axios 默认 10s，故放宽超时
  * @param {string} scene home 首页 / shop 商城
  * @param {boolean} refresh 是否跳过缓存强制刷新
  * @returns {Promise<Object>} { items: [{ id, type, title, image, price, reason, score, ... }], summary }
  */
 export const getRecommendations = (scene = 'home', refresh = false) =>
-  request.get('/ai/recommend/feed', { params: { scene, refresh } })
+  request.get('/ai/recommend/feed', { params: { scene, refresh }, timeout: 120000 })

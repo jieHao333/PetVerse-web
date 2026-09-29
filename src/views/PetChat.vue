@@ -902,19 +902,24 @@ const onEnterKey = (e) => {
 }
 
 /* ---------- 整体布局：左侧栏 + 右聊天区 ---------- */
+/* 固定为视口高度：侧栏会话再多也只在其内部滚动，不会撑高页面把右侧聊天区顶上去 */
 .chat-layout {
   display: flex;
   align-items: stretch;
+  height: calc(100vh - 136px);
+  min-height: 480px;
 }
 
 /* ---------- 侧栏 ---------- */
 .chat-sidebar {
   width: 248px;
   flex-shrink: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   border-right: 1px solid var(--pv-border);
-  background: var(--pv-bg, #fafafa);
+  background: rgba(255, 255, 255, 0.45);
 }
 .side-section {
   padding: 14px 12px;
@@ -995,10 +1000,10 @@ const onEnterKey = (e) => {
   text-overflow: ellipsis;
 }
 
-/* 会话列表项 */
+/* 会话列表项：占满侧栏剩余高度，条目多时仅在其内部滚动 */
 .session-scroll {
   flex: 1;
-  min-height: 120px;
+  min-height: 0;
 }
 .session-empty {
   padding: 10px 6px;
@@ -1069,6 +1074,7 @@ const onEnterKey = (e) => {
 .chat-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -1114,14 +1120,20 @@ const onEnterKey = (e) => {
 }
 
 /* ---------- 消息列表 ---------- */
+/* 消息区：占满右栏剩余高度，消息多时仅在其内部滚动 */
 .chat-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding: 18px 24px;
 }
 .history-skeleton {
   padding: 8px 0;
 }
 .msg-scroll {
-  height: 55vh;
+  flex: 1;
+  min-height: 0;
 }
 .msg-scroll :deep(.el-scrollbar__view) {
   padding: 4px 4px 8px;
@@ -1477,12 +1489,15 @@ const onEnterKey = (e) => {
 
 /* ---------- 移动端 ---------- */
 @media (max-width: 768px) {
-  /* 侧栏改为顶部横向区块：宠物横滑一行，会话列表限高 */
+  /* 侧栏改为顶部横向区块：宠物横滑一行，会话列表限高；恢复整页滚动 */
   .chat-layout {
     flex-direction: column;
+    height: auto;
+    min-height: 0;
   }
   .chat-sidebar {
     width: 100%;
+    overflow: visible;
     border-right: none;
     border-bottom: 1px solid var(--pv-border);
   }
@@ -1499,6 +1514,13 @@ const onEnterKey = (e) => {
   }
   .session-scroll {
     max-height: 150px;
+  }
+  .chat-body {
+    flex: none;
+    display: block;
+  }
+  .msg-scroll {
+    height: 55vh;
   }
   .session-del {
     opacity: 1;

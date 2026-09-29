@@ -4,7 +4,7 @@
   box-sizing: border-box;
 }
 
-/* ========== PetVerse 设计系统（单色 · 墨色极简） ========== */
+/* ========== PetVerse 设计系统（浅色通透 · 液态玻璃） ========== */
 :root {
   --pv-ink: #17181c;
   --pv-ink-soft: #2b2d33;
@@ -17,6 +17,20 @@
   --pv-shadow: 0 8px 24px rgba(23, 24, 28, 0.07);
   --pv-shadow-lg: 0 16px 44px rgba(23, 24, 28, 0.12);
   --pv-radius: 16px;
+
+  /* 液态玻璃令牌：半透明白 + 磨砂 + 高光描边 */
+  --pv-glass: rgba(255, 255, 255, 0.6);
+  --pv-glass-strong: rgba(255, 255, 255, 0.72);
+  --pv-glass-border: rgba(255, 255, 255, 0.85);
+  --pv-glass-blur: blur(20px) saturate(160%);
+  --pv-glass-shadow: 0 12px 32px rgba(60, 66, 90, 0.1);
+  /* 页面柔光底色（与登录页一致的浅色网格渐变） */
+  --pv-page-bg:
+    radial-gradient(55% 75% at 12% 16%, rgba(255, 210, 224, 0.35), transparent 62%),
+    radial-gradient(50% 70% at 88% 10%, rgba(190, 218, 255, 0.35), transparent 62%),
+    radial-gradient(55% 75% at 82% 88%, rgba(198, 242, 222, 0.3), transparent 62%),
+    radial-gradient(45% 65% at 14% 88%, rgba(255, 234, 198, 0.35), transparent 62%),
+    #fbfaf8;
 
   /* Element Plus 主题覆写（墨色单色系） */
   --el-color-primary: #17181c;
@@ -44,7 +58,8 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: var(--pv-bg);
+  background: var(--pv-page-bg);
+  background-attachment: fixed;
 }
 
 a {
@@ -89,19 +104,26 @@ a:hover {
   }
 }
 
-/* 通用面板 */
+/* 通用面板：液态玻璃 */
 .pv-panel {
-  background: #fff;
-  border: 1px solid var(--pv-border);
+  background: var(--pv-glass);
+  backdrop-filter: var(--pv-glass-blur);
+  -webkit-backdrop-filter: var(--pv-glass-blur);
+  border: 1px solid var(--pv-glass-border);
   border-radius: var(--pv-radius);
-  box-shadow: var(--pv-shadow-sm);
+  box-shadow: var(--pv-glass-shadow), inset 0 1px 1px rgba(255, 255, 255, 0.8);
 }
 
 /* ========== Element Plus 全局精致化 ========== */
-.el-card {
-  border-radius: var(--pv-radius);
-  border-color: var(--pv-border);
-  box-shadow: var(--pv-shadow-sm);
+/* 选择器加 body 前缀提升优先级：Element 组件样式由按需导入在 main.css 之后注入，
+   同优先级会覆盖这里的主题覆写 */
+body .el-card {
+  background: var(--pv-glass);
+  backdrop-filter: var(--pv-glass-blur);
+  -webkit-backdrop-filter: var(--pv-glass-blur);
+  border-radius: 20px;
+  border: 1px solid var(--pv-glass-border);
+  box-shadow: var(--pv-glass-shadow), inset 0 1px 1px rgba(255, 255, 255, 0.8);
 }
 
 .el-button {
@@ -109,42 +131,62 @@ a:hover {
   transition: all 0.22s ease;
 }
 .el-button--primary:not(.is-plain):not(.is-text):not(.is-link) {
-  background: var(--pv-ink);
+  background: linear-gradient(145deg, var(--pv-ink-soft), var(--pv-ink));
   border-color: var(--pv-ink);
-  box-shadow: 0 4px 12px rgba(23, 24, 28, 0.18);
+  box-shadow: 0 6px 16px rgba(23, 24, 28, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.22);
 }
 .el-button--primary:not(.is-plain):not(.is-text):not(.is-link):hover,
 .el-button--primary:not(.is-plain):not(.is-text):not(.is-link):focus {
-  background: var(--pv-ink-soft);
+  background: linear-gradient(145deg, #34363c, var(--pv-ink-soft));
   border-color: var(--pv-ink-soft);
-  box-shadow: 0 6px 16px rgba(23, 24, 28, 0.24);
+  box-shadow: 0 8px 20px rgba(23, 24, 28, 0.28), inset 0 1px 1px rgba(255, 255, 255, 0.22);
   transform: translateY(-1px);
 }
 .el-button--default:not(.is-text):not(.is-link):hover {
   transform: translateY(-1px);
 }
 
-.el-dialog,
-.el-message-box {
-  border-radius: 18px;
+body .el-dialog,
+body .el-message-box {
+  background: var(--pv-glass-strong);
+  backdrop-filter: var(--pv-glass-blur);
+  -webkit-backdrop-filter: var(--pv-glass-blur);
+  border: 1px solid var(--pv-glass-border);
+  border-radius: 20px;
+  box-shadow: var(--pv-shadow-lg), inset 0 1px 1px rgba(255, 255, 255, 0.9);
 }
 
-.el-input__wrapper,
-.el-textarea__inner {
-  box-shadow: 0 0 0 1px #e2e1dd inset;
+body .el-input__wrapper,
+body .el-textarea__inner {
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 0 0 1px rgba(23, 24, 28, 0.08) inset;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
 }
-.el-input__wrapper:hover,
-.el-textarea__inner:hover {
-  box-shadow: 0 0 0 1px #c9c8c4 inset;
+body .el-input__wrapper:hover,
+body .el-textarea__inner:hover {
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 1px rgba(23, 24, 28, 0.16) inset;
 }
-.el-input__wrapper.is-focus,
-.el-textarea__inner:focus {
-  box-shadow: 0 0 0 1px var(--pv-ink) inset;
+body .el-input__wrapper.is-focus,
+body .el-textarea__inner:focus {
+  background: #fff;
+  box-shadow:
+    0 0 0 1px var(--pv-ink) inset,
+    0 0 0 4px rgba(23, 24, 28, 0.06);
 }
 
-.el-avatar {
+body .el-avatar {
   background: var(--pv-ink);
   color: #fff;
+}
+
+/* 表格融入玻璃卡片：行透明、表头半透明白 */
+body .el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgba(255, 255, 255, 0.55);
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.65);
+  background: transparent;
 }
 
 /* 路由切换过渡 */

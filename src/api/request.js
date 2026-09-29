@@ -37,6 +37,10 @@ request.interceptors.response.use(
       router.push({ name: 'login' })
       return Promise.reject(new Error('登录已失效，请重新登录'))
     }
+    // axios 超时（error.code=ECONNABORTED）时 response 为空，e.message 是英文技术文案，转成中文提示
+    if (error.code === 'ECONNABORTED') {
+      return Promise.reject(new Error('请求超时，请稍后重试'))
+    }
     const msg = error.response?.data?.msg || error.message || '网络异常'
     return Promise.reject(new Error(msg))
   }

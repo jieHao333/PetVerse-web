@@ -242,8 +242,11 @@ onUnmounted(stopPolling)
 
 <style scoped>
 .app-header {
-  background: #fff;
-  border-bottom: 1px solid var(--pv-border);
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 6px 24px rgba(60, 66, 90, 0.08);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -305,15 +308,18 @@ onUnmounted(stopPolling)
   margin: 0 4px;
   padding: 0 16px !important;
   border-radius: 999px;
+  border: 1px solid transparent;
   border-bottom: none !important;
   font-weight: 500;
-  transition: background 0.2s, color 0.2s;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
 }
 .nav-menu :deep(.el-menu-item:hover) {
-  background: var(--pv-tint);
+  background: rgba(255, 255, 255, 0.7);
 }
 .nav-menu :deep(.el-menu-item.is-active) {
-  background: var(--pv-tint);
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 12px rgba(60, 66, 90, 0.1), inset 0 1px 1px rgba(255, 255, 255, 0.9);
   font-weight: 600;
 }
 .right {
