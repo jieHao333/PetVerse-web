@@ -202,3 +202,80 @@ body .el-table {
   opacity: 0;
   transform: translateY(-8px);
 }
+
+/* ========== 移动端全局适配（≤768px 视口） ========== */
+/* 各页面弹窗宽度从 380px 到 560px 不等，这里统一在小屏收口，
+   页面无需逐个修改 width 属性；同时限制弹窗高度并让内容区滚动，
+   避免聊天窗等高弹窗把底部按钮顶出屏幕 */
+@media (max-width: 768px) {
+  body .el-dialog {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px);
+    margin: 6vh auto 20px !important;
+    max-height: 86vh;
+    display: flex;
+    flex-direction: column;
+  }
+  body .el-dialog .el-dialog__body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* MessageBox 确认框同样收口 */
+  body .el-message-box {
+    max-width: calc(100vw - 32px);
+    width: calc(100vw - 32px);
+  }
+  body .el-message {
+    max-width: calc(100vw - 32px);
+    min-width: 0;
+  }
+
+  /* 分页组件整体换行居中；页码多时组件自身不换行，隐藏每页条数选择器留出空间 */
+  body .el-pagination {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    justify-content: center;
+  }
+  body .el-pagination .el-pagination__sizes {
+    display: none;
+  }
+
+  /* 日期范围选择面板默认 646px 双月并排，小屏改为单月纵向堆叠 */
+  body .el-date-range-picker {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px);
+  }
+  body .el-date-range-picker .el-date-range-picker__content {
+    float: none !important;
+    width: 100% !important;
+  }
+  body .el-picker-panel__body {
+    min-width: 0;
+  }
+  /* 单月/弹层日历宽度收口，避免 322px 面板贴边溢出 */
+  body .el-picker-panel.popper {
+    max-width: calc(100vw - 12px);
+  }
+
+  /* 固定 label-width 的表单在小屏改为标签顶置，输入区拿回整行宽度；
+     内联表单（筛选栏）除外，保持横向排布 */
+  body .el-form:not(.el-form--inline) .el-form-item:not(.el-form-item--label-top) {
+    display: block;
+  }
+  body .el-form:not(.el-form--inline) .el-form-item:not(.el-form-item--label-top) > .el-form-item__label {
+    display: flex;
+    width: auto !important;
+    justify-content: flex-start;
+    margin-bottom: 6px;
+  }
+
+  /* 触屏没有 hover：依赖 hover 显隐的元素统一常显（如列表行删除按钮） */
+  body .el-table {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 通知/铃铛弹层在窄屏全宽 */
+  body .notif-popover.el-popper {
+    width: calc(100vw - 24px) !important;
+  }
+}

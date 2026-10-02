@@ -106,7 +106,7 @@ const openMyReviews = () => {
                 v-model="category"
                 placeholder="全部类型"
                 clearable
-                style="width: 140px"
+                class="filter-select"
                 @change="onSearch"
               >
                 <el-option
@@ -120,7 +120,7 @@ const openMyReviews = () => {
                 v-model="keyword"
                 placeholder="搜索商品名/详情/店铺"
                 clearable
-                style="width: 220px"
+                class="filter-input"
                 :prefix-icon="Search"
                 @keyup.enter="onSearch"
                 @clear="onSearch"
@@ -248,6 +248,12 @@ const openMyReviews = () => {
   gap: 10px;
   flex-wrap: wrap;
 }
+.filter-select {
+  width: 140px;
+}
+.filter-input {
+  width: 220px;
+}
 
 /* 商品网格 */
 .product-grid {
@@ -348,5 +354,30 @@ const openMyReviews = () => {
 }
 .recommend-reason {
   color: #6b4fd8;
+}
+
+@media (max-width: 768px) {
+  .filter-select {
+    width: 120px;
+  }
+  .filter-input {
+    flex: 1;
+    width: auto;
+    min-width: 140px;
+  }
+  /* 窄屏固定两列商品卡，接近主流电商移动端布局 */
+  .product-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .product-img {
+    height: 140px;
+  }
+  .product-body {
+    padding: 10px 12px 12px;
+  }
+  .price {
+    font-size: 15px;
+  }
 }
 </style>

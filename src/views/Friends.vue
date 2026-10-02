@@ -1271,5 +1271,17 @@ onUnmounted(() => {
   .chat-input {
     flex-wrap: wrap;
   }
+  /* 聊天弹窗小屏下限高，避免消息区把输入框顶出屏幕 */
+  .chat-messages {
+    height: min(420px, 46vh);
+    padding: 12px;
+  }
+  .bubble {
+    max-width: 82%;
+  }
+  /* 触屏无 hover：会话删除按钮常显 */
+  .conv-del {
+    opacity: 1;
+  }
 }
 </style>

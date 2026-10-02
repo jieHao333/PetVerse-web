@@ -368,4 +368,25 @@ const onClaimChoose = async () => {
   margin-top: 18px;
   width: 100%;
 }
+
+@media (max-width: 768px) {
+  .random-hero {
+    padding: 22px 20px;
+  }
+  .random-title {
+    font-size: 18px;
+  }
+  .random-btn {
+    width: 100%;
+    padding: 12px 0;
+  }
+  /* 图鉴网格窄屏收窄基数，保证两列排布更宽松 */
+  .catalog-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .catalog-item {
+    padding: 14px 10px;
+  }
+}
 </style>

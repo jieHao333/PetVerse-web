@@ -849,10 +849,16 @@ onMounted(async () => {
 }
 
 @media (max-width: 768px) {
+  .id-card {
+    padding: 20px 16px 18px;
+  }
   .id-card-body {
     flex-direction: column;
     align-items: flex-start;
     gap: 18px;
+  }
+  .id-fields {
+    gap: 12px 16px;
   }
   .id-card-footer {
     flex-direction: column;

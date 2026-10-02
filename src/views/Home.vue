@@ -656,12 +656,23 @@ const onSignIn = async () => {
   color: #d4380d;
 }
 @media (max-width: 768px) {
+  .hero-banner {
+    padding: 22px 20px;
+  }
+  .hello {
+    font-size: 19px;
+  }
   .pet-row {
     flex-wrap: wrap;
   }
   .row-actions {
     flex-direction: row;
     width: 100%;
+    justify-content: flex-start;
+  }
+  /* 窄屏固定两列推荐，比 auto-fill 退化成的单列大图更紧凑 */
+  .recommend-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>

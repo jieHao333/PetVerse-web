@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
+import { useIsMobile } from '@/utils/responsive'
 import {
   completeOrder,
   deleteProduct,
@@ -13,6 +14,9 @@ import {
   updateProduct,
   uploadShopImage,
 } from '@/api/shop'
+
+// 窄屏下 el-table 的 fixed 操作列会悬浮遮挡横向滚动内容，按端动态禁用
+const isMobile = useIsMobile()
 
 /* ==================== 店铺信息 ==================== */
 
@@ -361,7 +365,7 @@ const onCompleteOrder = async () => {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="180" fixed="right">
+          <el-table-column label="操作" :width="isMobile ? undefined : 180" :fixed="isMobile ? false : 'right'">
             <template #default="{ row }">
               <el-button type="primary" link @click="openProductDialog(row)">编辑</el-button>
               <el-button :type="row.status === 1 ? 'warning' : 'success'" link @click="onToggleStatus(row)">
@@ -427,7 +431,7 @@ const onCompleteOrder = async () => {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="120" fixed="right">
+          <el-table-column label="操作" :width="isMobile ? undefined : 120" :fixed="isMobile ? false : 'right'">
             <template #default="{ row }">
               <el-button v-if="row.status === 1" type="primary" link @click="openPickupDialog(row)">
                 到店核销
@@ -729,5 +733,30 @@ const onCompleteOrder = async () => {
 .pickup-tip {
   font-size: 12px;
   color: var(--pv-text-secondary);
+}
+
+@media (max-width: 768px) {
+  .card-header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .shop-info {
+    gap: 12px;
+  }
+  .shop-info .shop-logo {
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 18px;
+  }
+  .shop-name {
+    font-size: 15px;
+  }
+  .shop-name-line {
+    flex-wrap: wrap;
+  }
+  /* 订单状态下拉窄屏撑满一行 */
+  .card-header .el-select {
+    width: 100% !important;
+  }
 }
 </style>

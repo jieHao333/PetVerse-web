@@ -484,4 +484,47 @@ const openMyReviews = () => {
   font-size: 12px;
   color: var(--pv-text-secondary);
 }
+
+@media (max-width: 768px) {
+  /* 状态筛选 5 个按钮总宽超出窄屏，允许横向滑动 */
+  .status-tabs {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .status-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .order-head {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .order-no {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .order-time {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+  .order-remark {
+    max-width: 100%;
+    flex-basis: 100%;
+    white-space: normal;
+  }
+  /* 待支付订单的倒计时 + 双按钮整块允许换行 */
+  .order-actions {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    justify-content: flex-end;
+  }
+  .order-foot {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+  .order-remark {
+    align-self: flex-start;
+  }
+}
 </style>

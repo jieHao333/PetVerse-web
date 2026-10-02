@@ -274,4 +274,19 @@ const onMarkAllRead = async () => {
   font-size: 13px;
   color: var(--pv-text-secondary);
 }
+
+@media (max-width: 768px) {
+  .card-header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .header-actions {
+    gap: 10px;
+  }
+  .pager {
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
 </style>

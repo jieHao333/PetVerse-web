@@ -2,7 +2,11 @@
 import { onMounted, reactive, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
+import { useIsMobile } from '@/utils/responsive'
 import { auditApply, pageApply } from '@/api/shop'
+
+// 窄屏下 el-table 的 fixed 操作列会悬浮遮挡横向滚动内容，按端动态禁用
+const isMobile = useIsMobile()
 
 const applies = ref([])
 const total = ref(0)
@@ -148,7 +152,7 @@ const onAudit = async () => {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="120" fixed="right">
+          <el-table-column label="操作" :width="isMobile ? undefined : 120" :fixed="isMobile ? false : 'right'">
             <template #default="{ row }">
               <el-button v-if="row.status === 0" type="primary" link @click="openAudit(row)">
                 审批
@@ -293,5 +297,28 @@ const onAudit = async () => {
 }
 .reject-input {
   margin-top: 12px;
+}
+
+@media (max-width: 768px) {
+  .card-header .el-select,
+  .card-header .el-input {
+    width: 100% !important;
+  }
+  /* 审批单选项文案较长，窄屏竖排避免横向顶出弹窗 */
+  .audit-area .el-radio-group {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .audit-area .el-radio {
+    white-space: normal;
+    height: auto;
+    margin-right: 0;
+    align-items: flex-start;
+  }
+  .audit-area .el-radio .el-radio__label {
+    line-height: 1.5;
+  }
 }
 </style>

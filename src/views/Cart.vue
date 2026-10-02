@@ -457,4 +457,49 @@ const onPay = async () => {
   font-size: 12px;
   color: var(--pv-text-secondary);
 }
+
+@media (max-width: 768px) {
+  /* 窄屏购物车条目改两行：上行放勾选+图+名称价格，下行放数量/小计/删除 */
+  .cart-item {
+    display: grid;
+    grid-template-columns: auto 64px 1fr auto auto;
+    grid-template-areas:
+      'check img info info info'
+      '.     .   qty  sum  del';
+    column-gap: 14px;
+    row-gap: 12px;
+    align-items: center;
+    padding: 12px 14px;
+  }
+  .cart-item > .el-checkbox {
+    grid-area: check;
+  }
+  .item-img {
+    grid-area: img;
+  }
+  .item-info {
+    grid-area: info;
+  }
+  .cart-item > .el-input-number {
+    grid-area: qty;
+    justify-self: start;
+  }
+  .item-subtotal {
+    grid-area: sum;
+    min-width: 0;
+    justify-self: end;
+  }
+  .cart-item > .el-button {
+    grid-area: del;
+    justify-self: end;
+  }
+  .checkout-right {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .checkout-right .el-button {
+    flex: 1;
+  }
+}
 </style>

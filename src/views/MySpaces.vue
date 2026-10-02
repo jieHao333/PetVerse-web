@@ -297,4 +297,15 @@ onUnmounted(() => {
   color: var(--pv-text-secondary);
   padding: 6px 0 2px;
 }
+
+@media (max-width: 768px) {
+  .toolbar :deep(.el-input),
+  .toolbar-input {
+    width: 100%;
+  }
+  .toolbar :deep(.el-date-editor) {
+    width: 100%;
+    flex-shrink: 1;
+  }
+}
 </style>

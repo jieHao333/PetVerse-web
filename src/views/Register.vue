@@ -372,18 +372,57 @@ const onSubmit = async () => {
 
 @media (max-width: 900px) {
   .auth-page {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* 固定 440px 的卡片在小屏改为撑满列宽，避免把 grid 列撑出视口 */
+  .glass-card {
+    width: 100%;
   }
   .brand-side {
-    padding: 56px 24px 8px;
+    padding: 48px 24px 8px;
     align-items: center;
     text-align: center;
   }
-  .brand-name { font-size: 38px; }
-  .brand-tag { margin-bottom: 24px; }
+  .brand-name { font-size: 34px; }
+  .brand-tag { margin-bottom: 20px; }
   .brand-points { justify-content: center; }
   .orb { display: none; }
-  .form-side { padding: 24px 24px 56px; }
+  .form-side { padding: 20px 16px 48px; }
+}
+
+/* 手机端收紧品牌区与卡片内边距，注册表单较长需尽快进入首屏 */
+@media (max-width: 768px) {
+  .brand-side {
+    padding: 36px 20px 0;
+  }
+  .brand-logo {
+    width: 64px;
+    height: 64px;
+  }
+  .brand-name {
+    font-size: 28px;
+  }
+  .brand-tag {
+    margin-bottom: 16px;
+    font-size: 14px;
+  }
+  .brand-points {
+    display: none;
+  }
+  .glass-card {
+    padding: 26px 20px 22px;
+    border-radius: 22px;
+  }
+  .card-title {
+    font-size: 22px;
+  }
+  .card-sub {
+    margin-bottom: 18px;
+  }
+  .submit-btn.el-button--primary:not(.is-plain):not(.is-text):not(.is-link) {
+    letter-spacing: 5px;
+    height: 46px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

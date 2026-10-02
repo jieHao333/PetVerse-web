@@ -306,6 +306,28 @@ const onSavePassword = async () => {
     grid-template-columns: 1fr;
   }
 }
+@media (max-width: 768px) {
+  /* 宠物行窄屏换行：名称信息独占一行，操作按钮移到下方 */
+  .pet-row {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+  .pet-row-info {
+    flex: 1 1 calc(100% - 68px);
+  }
+  .pet-row .el-button {
+    margin-left: 0;
+  }
+  .pet-row .el-button + .el-button {
+    margin-left: 8px;
+  }
+  .user-head {
+    gap: 14px;
+  }
+  .name {
+    font-size: 19px;
+  }
+}
 .card-title {
   font-weight: 700;
   font-size: 15px;

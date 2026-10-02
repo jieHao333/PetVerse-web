@@ -910,6 +910,33 @@ onMounted(() => {
   .ai-review-cols {
     grid-template-columns: 1fr;
   }
+  /* 窄屏主图与信息区上下堆叠，380px 固定图区改为流式避免横向溢出 */
+  .detail-gallery {
+    width: 100%;
+  }
+  .main-img {
+    height: 300px;
+  }
+  .detail-info {
+    width: 100%;
+    min-width: 0;
+  }
+  .info-name {
+    font-size: 18px;
+  }
+  .price {
+    font-size: 26px;
+  }
+  .info-actions {
+    flex-wrap: wrap;
+  }
+  .info-actions .el-button {
+    flex: 1;
+    min-width: 120px;
+  }
+  .pager {
+    justify-content: center;
+  }
 }
 .review-list {
   min-height: 80px;

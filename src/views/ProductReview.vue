@@ -780,6 +780,23 @@ onMounted(() => {
   white-space: pre-wrap;
 }
 
+@media (max-width: 768px) {
+  /* 窄屏缩小商品图，给名称与描述让出宽度 */
+  .product-info {
+    gap: 14px;
+  }
+  .product-img {
+    width: 96px;
+    height: 96px;
+  }
+  .product-name {
+    font-size: 17px;
+  }
+  .pager {
+    justify-content: center;
+  }
+}
+
 /* 发表评价 */
 .review-form {
   padding: 16px 18px;

@@ -497,4 +497,16 @@ onUnmounted(() => {
   text-align: center;
   padding: 18px 0;
 }
+
+@media (max-width: 768px) {
+  .space-search .el-input {
+    flex: 1;
+    width: auto;
+    min-width: 160px;
+  }
+  .space-search :deep(.el-date-editor) {
+    width: 100%;
+    flex-shrink: 1;
+  }
+}
 </style>

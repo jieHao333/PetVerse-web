@@ -149,7 +149,7 @@ const addToCart = async (productId, quantity) => {
                 v-model="category"
                 placeholder="全部类型"
                 clearable
-                style="width: 140px"
+                class="filter-select"
                 @change="onSearch"
               >
                 <el-option
@@ -163,7 +163,7 @@ const addToCart = async (productId, quantity) => {
                 v-model="keyword"
                 placeholder="搜索店内商品名或详情"
                 clearable
-                style="width: 220px"
+                class="filter-input"
                 :prefix-icon="Search"
                 @keyup.enter="onSearch"
                 @clear="onSearch"
@@ -325,6 +325,12 @@ const addToCart = async (productId, quantity) => {
   gap: 10px;
   flex-wrap: wrap;
 }
+.filter-select {
+  width: 140px;
+}
+.filter-input {
+  width: 220px;
+}
 
 /* 商品网格 */
 .product-grid {
@@ -414,5 +420,49 @@ const addToCart = async (productId, quantity) => {
 .total-text {
   font-size: 13px;
   color: var(--pv-text-secondary);
+}
+
+@media (max-width: 768px) {
+  /* 店铺头部小屏上下堆叠：logo 缩小、操作按钮移到信息区下方 */
+  .store-header {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .store-logo,
+  .logo-placeholder {
+    width: 56px;
+    height: 56px;
+  }
+  .logo-placeholder {
+    font-size: 26px;
+  }
+  .store-info {
+    flex: 1 1 calc(100% - 180px);
+  }
+  .store-actions {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .store-name {
+    font-size: 17px;
+  }
+  .filter-select {
+    width: 120px;
+  }
+  .filter-input {
+    flex: 1;
+    width: auto;
+    min-width: 140px;
+  }
+  .product-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .product-img {
+    height: 140px;
+  }
+  .product-body {
+    padding: 10px 12px 12px;
+  }
 }
 </style>

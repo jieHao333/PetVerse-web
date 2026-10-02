@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onUnmounted, ref, useAttrs, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, ArrowLeft, Bell } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowLeft, Bell, Menu } from '@element-plus/icons-vue'
 import logo from '@/assets/logo.jpg'
 import { NOTIF_SOURCE, getUnreadCount, markRead, pageNotifications } from '@/api/notification'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
@@ -32,6 +32,32 @@ const user = computed(() => JSON.parse(localStorage.getItem('user') || 'null'))
 
 // 当前用户角色：USER/MERCHANT/ADMIN，存量用户无 role 时默认 USER
 const role = computed(() => user.value?.role || 'USER')
+
+// ===== 移动端导航：≤768px 时横向菜单收进汉堡按钮 + 抽屉 =====
+const NAV_ITEMS = [
+  { path: '/', label: '首页' },
+  { path: '/space', label: '圈子' },
+  { path: '/friends', label: '好友' },
+  { path: '/pet-chat', label: 'AI养宠' },
+  { path: '/shop', label: '宠物商城' },
+  { path: '/profile', label: '个人资料' },
+]
+
+const mobileQuery = window.matchMedia('(max-width: 768px)')
+const isMobile = ref(mobileQuery.matches)
+const onMobileChange = (e) => {
+  isMobile.value = e.matches
+}
+mobileQuery.addEventListener('change', onMobileChange)
+onUnmounted(() => mobileQuery.removeEventListener('change', onMobileChange))
+
+const navDrawerVisible = ref(false)
+const isActiveNav = (path) =>
+  path === '/' ? route.path === '/' : route.path.startsWith(path)
+const goNav = (path) => {
+  navDrawerVisible.value = false
+  if (route.path !== path) router.push(path)
+}
 
 const onLogout = () => {
   localStorage.removeItem('token')
@@ -152,21 +178,66 @@ onUnmounted(stopPolling)
         </span>
       </div>
 
+      <button
+        v-if="showNav && isMobile"
+        class="nav-toggle"
+        type="button"
+        aria-label="打开导航菜单"
+        @click="navDrawerVisible = true"
+      >
+        <el-icon :size="20"><Menu /></el-icon>
+      </button>
+
       <el-menu
-        v-if="showNav"
+        v-if="showNav && !isMobile"
         mode="horizontal"
         :default-active="route.path"
         :ellipsis="false"
         router
         class="nav-menu"
       >
-        <el-menu-item index="/">首页</el-menu-item>
-        <el-menu-item index="/space">圈子</el-menu-item>
-        <el-menu-item index="/friends">好友</el-menu-item>
-        <el-menu-item index="/pet-chat">AI养宠</el-menu-item>
-        <el-menu-item index="/shop">宠物商城</el-menu-item>
-        <el-menu-item index="/profile">个人资料</el-menu-item>
+        <el-menu-item v-for="item in NAV_ITEMS" :key="item.path" :index="item.path">
+          {{ item.label }}
+        </el-menu-item>
       </el-menu>
+
+      <!-- 移动端导航抽屉：从右侧滑出，含主导航与常用入口；
+           append-to-body 必须开启，否则顶栏的 backdrop-filter 会把 fixed 面板
+           限制在 60px 高的头部内 -->
+      <el-drawer
+        v-model="navDrawerVisible"
+        direction="rtl"
+        size="280px"
+        :with-header="false"
+        append-to-body
+        class="nav-drawer"
+      >
+        <div class="drawer-nav">
+          <div class="drawer-brand">
+            <img :src="logo" alt="PetVerse" class="drawer-logo" />
+            <span class="drawer-title">PetVerse</span>
+          </div>
+          <div
+            v-for="item in NAV_ITEMS"
+            :key="item.path"
+            class="drawer-item"
+            :class="{ active: isActiveNav(item.path) }"
+            @click="goNav(item.path)"
+          >
+            {{ item.label }}
+          </div>
+          <div class="drawer-divider"></div>
+          <div class="drawer-item" @click="goNav('/shop/cart')">购物车</div>
+          <div class="drawer-item" @click="goNav('/shop/orders')">我的订单</div>
+          <div v-if="role === 'MERCHANT' || role === 'ADMIN'" class="drawer-item" @click="goNav('/merchant-center')">
+            商家中心
+          </div>
+          <div v-if="role === 'ADMIN'" class="drawer-item" @click="goNav('/admin/merchant-audit')">
+            入驻审批
+          </div>
+          <div class="drawer-item danger" @click="onLogout">退出登录</div>
+        </div>
+      </el-drawer>
 
       <div class="right">
         <el-popover
@@ -334,6 +405,71 @@ onUnmounted(stopPolling)
   display: inline-flex;
   align-items: center;
 }
+/* 汉堡按钮：仅移动端主导航页显示 */
+.nav-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--pv-text-secondary);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.nav-toggle:hover {
+  background: var(--pv-tint);
+  color: var(--pv-ink);
+}
+/* 抽屉导航（抽屉面板 teleport 到 body，但内容是本组件插槽，scoped 可命中） */
+.drawer-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 4px;
+}
+.drawer-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 18px;
+}
+.drawer-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  object-fit: cover;
+}
+.drawer-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--pv-text);
+}
+.drawer-item {
+  padding: 13px 16px;
+  border-radius: 12px;
+  font-size: 15px;
+  color: var(--pv-text);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.drawer-item:hover {
+  background: var(--pv-tint);
+}
+.drawer-item.active {
+  background: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(60, 66, 90, 0.1);
+}
+.drawer-item.danger {
+  color: var(--el-color-danger);
+}
+.drawer-divider {
+  height: 1px;
+  margin: 10px 14px;
+  background: var(--pv-border);
+}
 .bell-icon {
   font-size: 20px;
   color: var(--pv-text-secondary);
@@ -368,6 +504,16 @@ onUnmounted(stopPolling)
 .arrow {
   color: #909399;
   font-size: 12px;
+}
+@media (max-width: 768px) {
+  /* 窄屏收起昵称与下拉箭头，只留头像，为汉堡 + 铃铛留出空间 */
+  .nickname,
+  .user-trigger .arrow {
+    display: none;
+  }
+  .right {
+    gap: 12px;
+  }
 }
 </style>
 

@@ -787,4 +787,30 @@ const gotoProfile = (userId) => {
   font-size: 13px;
   color: var(--pv-text-secondary);
 }
+
+@media (max-width: 768px) {
+  /* 工具栏控件小屏纵向铺满，避免固定宽度挤压 */
+  .toolbar :deep(.el-input),
+  .toolbar :deep(.el-select),
+  .toolbar-input,
+  .toolbar-input.narrow {
+    width: 100%;
+  }
+  .toolbar :deep(.el-date-editor) {
+    width: 100%;
+    flex-shrink: 1;
+  }
+  .sort-toggle {
+    margin-left: 0;
+  }
+  .pager {
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+  .page-title {
+    font-size: 20px;
+  }
+}
 </style>
