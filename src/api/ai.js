@@ -311,3 +311,45 @@ export const summarizeProductReviews = (productId) =>
  */
 export const getRecommendations = (scene = 'home', refresh = false) =>
   request.get('/ai/recommend/feed', { params: { scene, refresh }, timeout: 120000 })
+
+/* ---------------- 个性化推荐的本地缓存（SWR：本地旧值秒出 + 后台刷新覆盖） ---------------- */
+
+// 本地缓存的最长可信时长：超过即视为失效，宁可转圈重拉也不展示过于陈旧的推荐
+const _RECOMMEND_CACHE_MAX_AGE = 24 * 60 * 60 * 1000
+
+// 缓存键按用户 + 场景隔离（用户 id 取自 localStorage 登录信息，换账号互不可见），未登录时不读写
+const _recommendCacheKey = (scene) => {
+  try {
+    const uid = JSON.parse(localStorage.getItem('user') || 'null')?.id
+    return uid != null ? `pv:recommend:${scene}:${uid}` : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 读取本地缓存的推荐结果（{ items, summary, ts }）
+ * 无缓存 / 超过可信时长 / 数据残缺时返回 null，由调用方走正常网络加载
+ */
+export const readRecommendCache = (scene = 'home') => {
+  const key = _recommendCacheKey(scene)
+  if (!key) return null
+  try {
+    const cached = JSON.parse(localStorage.getItem(key) || 'null')
+    if (!cached?.items?.length || Date.now() - cached.ts > _RECOMMEND_CACHE_MAX_AGE) return null
+    return cached
+  } catch {
+    return null
+  }
+}
+
+/** 写入本地缓存（只缓存非空结果，空态不缓存以便下次进入重新拉取）；写失败静默忽略 */
+export const writeRecommendCache = (scene, data) => {
+  const key = _recommendCacheKey(scene)
+  if (!key || !data?.items?.length) return
+  try {
+    localStorage.setItem(key, JSON.stringify({ items: data.items, summary: data.summary || '', ts: Date.now() }))
+  } catch {
+    // 隐私模式 / 容量满等写不进去就算了，不影响推荐主流程
+  }
+}

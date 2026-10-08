@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, ShoppingCart } from '@element-plus/icons-vue'
 import { pageProducts } from '@/api/shop'
-import { getRecommendations } from '@/api/ai'
+import { getRecommendations, readRecommendCache, writeRecommendCache } from '@/api/ai'
 
 const router = useRouter()
 
@@ -54,13 +54,22 @@ const recommendItems = ref([])
 const recommendLoading = ref(false)
 
 const loadRecommend = async () => {
-  recommendLoading.value = true
+  // SWR：本地缓存命中先渲染（后台刷新期间不转圈），进页面即可秒出推荐；
+  // 缓存按场景隔离在 api/ai.js 内部，这里存取的都是过滤后的商品类结果
+  const cached = readRecommendCache('shop')
+  if (cached) {
+    recommendItems.value = cached.items
+  }
+  recommendLoading.value = !cached
   try {
     const data = await getRecommendations('shop')
     // 商城场景只保留商品类推荐
-    recommendItems.value = (data.items || []).filter((i) => i.type === 'product')
+    const items = (data.items || []).filter((i) => i.type === 'product')
+    recommendItems.value = items
+    writeRecommendCache('shop', { items, summary: data.summary })
   } catch {
-    recommendItems.value = []
+    // 后台刷新失败：已展示的本地缓存内容保留不动；冷启动无缓存时静默降级为空态
+    if (!cached) recommendItems.value = []
   } finally {
     recommendLoading.value = false
   }

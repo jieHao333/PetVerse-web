@@ -5,7 +5,7 @@ import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import PetDeleteDialog from '@/components/PetDeleteDialog.vue'
 import { getMe } from '@/api/user'
 import { listMyPets, renamePet, signIn } from '@/api/pet'
-import { getRecommendations } from '@/api/ai'
+import { getRecommendations, readRecommendCache, writeRecommendCache } from '@/api/ai'
 
 const router = useRouter()
 
@@ -98,7 +98,15 @@ const goProfile = (pet) => {
   router.push(`/pet/profile/${pet.id}`)
 }
 
-onMounted(async () => {
+onMounted(() => {
+  // 推荐请求与主内容并行发起（原先串行等主内容返回后才开始，白多等两轮往返）：
+  // 本地缓存先渲染、后台再刷新，主内容加载完时推荐多半已就绪，卡片即可秒出
+  loadRecommend()
+  loadMain()
+})
+
+// 首页主内容：当前用户信息 + 宠物列表
+const loadMain = async () => {
   try {
     const me = await getMe()
     localStorage.setItem('user', JSON.stringify(me))
@@ -112,9 +120,7 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-  // 推荐单独加载：失败静默降级，不阻塞首页主内容
-  loadRecommend()
-})
+}
 
 /* ==================== 为你推荐（LangGraph 个性化推荐） ==================== */
 
@@ -123,25 +129,34 @@ const recommendSummary = ref('')
 const recommendLoading = ref(false)
 
 const loadRecommend = async () => {
-  recommendLoading.value = true
+  // SWR：本地缓存命中先渲染（后台刷新期间不转圈），刷新页面即可秒出推荐
+  const cached = readRecommendCache('home')
+  if (cached) {
+    recommendItems.value = cached.items
+    recommendSummary.value = cached.summary
+  }
+  recommendLoading.value = !cached
   try {
     const data = await getRecommendations('home')
     recommendItems.value = data.items || []
     recommendSummary.value = data.summary || ''
+    writeRecommendCache('home', data)
   } catch {
-    // 推荐失败不影响首页主流程，静默降级为空态
-    recommendItems.value = []
+    // 后台刷新失败：已展示的本地缓存内容保留不动；冷启动无缓存时静默降级为空态
+    if (!cached) recommendItems.value = []
   } finally {
     recommendLoading.value = false
   }
 }
 
-// 点击推荐项：商品进详情页，动态进圈子
+// 点击推荐项：新标签页打开 —— 商品进商品详情页，动态进动态详情页（异常缺 id 时退回圈子列表）
 const openRecommend = (item) => {
   if (item.type === 'product') {
-    router.push(`/shop/product/${item.id}`)
+    window.open(router.resolve(`/shop/product/${item.id}`).href, '_blank')
+  } else if (item.id) {
+    window.open(router.resolve({ name: 'spaceDetail', params: { id: item.id } }).href, '_blank')
   } else {
-    router.push('/space')
+    window.open(router.resolve('/space').href, '_blank')
   }
 }
 
