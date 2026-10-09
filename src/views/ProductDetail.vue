@@ -5,6 +5,7 @@ import { ArrowLeft, ShoppingCart } from '@element-plus/icons-vue'
 import { addCartItem, buyNowOrder, deleteReviewReply, getProductDetail, getReviewSummary, pageProductReviews, pageReviewReplies, payOrder, saveReviewReply } from '@/api/shop'
 import { summarizeProductReviews } from '@/api/ai'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
+import { requireLogin } from '@/utils/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -44,6 +45,8 @@ const goStore = () => {
 const addingCart = ref(false)
 
 const onAddToCart = async () => {
+  // 游客可浏览商品与评价，加购、下单、评价互动都需要先登录
+  if (!(await requireLogin(router, route.fullPath))) return
   addingCart.value = true
   try {
     await addCartItem({ productId: detail.value.id, quantity: quantity.value })
@@ -60,7 +63,8 @@ const buyDialog = ref(false)
 const buying = ref(false)
 const buyRemark = ref('')
 
-const openBuyDialog = () => {
+const openBuyDialog = async () => {
+  if (!(await requireLogin(router, route.fullPath))) return
   buyRemark.value = ''
   buyDialog.value = true
 }
@@ -135,6 +139,8 @@ const aiSummaryLoading = ref(false)
 
 const onAiSummary = async () => {
   if (aiSummaryLoading.value) return
+  // AI 总结走 ai-service，同样需要登录身份
+  if (!(await requireLogin(router, route.fullPath))) return
   aiSummaryLoading.value = true
   try {
     aiSummary.value = await summarizeProductReviews(productId.value)
@@ -247,7 +253,8 @@ const loadMoreReplies = (reviewId) => {
 }
 
 // 点击回复：reply 为空表示直接回复该评价（如质询“该商品真的这么好吗？”），否则回复某条回复
-const startReply = (reviewId, reply = null) => {
+const startReply = async (reviewId, reply = null) => {
+  if (!(await requireLogin(router, route.fullPath))) return
   const state = replyOf(reviewId)
   state.open = true
   if (!state.loaded) {
@@ -264,6 +271,7 @@ const cancelReplyTarget = (reviewId) => {
 }
 
 const onSubmitReply = async (reviewId) => {
+  if (!(await requireLogin(router, route.fullPath))) return
   const state = replyOf(reviewId)
   if (!state.input.trim()) {
     ElMessage.warning('请输入回复内容')

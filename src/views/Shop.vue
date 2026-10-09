@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { Search, ShoppingCart } from '@element-plus/icons-vue'
 import { pageProducts } from '@/api/shop'
 import { getRecommendations, readRecommendCache, writeRecommendCache } from '@/api/ai'
+import { isLoggedIn, requireLogin } from '@/utils/auth'
 
 const router = useRouter()
 
@@ -45,7 +46,8 @@ const loadProducts = async () => {
 
 onMounted(() => {
   loadProducts()
-  loadRecommend()
+  // 「猜你喜欢」依赖个人画像走 ai-service，游客不请求，避免一进商城就被 401 弹登录
+  if (isLoggedIn()) loadRecommend()
 })
 
 /* ==================== 猜你喜欢（LangGraph 个性化推荐） ==================== */
@@ -97,7 +99,9 @@ const goStore = (item) => {
 }
 
 // 点击「我的评价」新标签页展示当前用户评价过的商品列表
-const openMyReviews = () => {
+const openMyReviews = async () => {
+  // 新标签页打开前先拦一次，避免游客点开一个只能提示登录的空白标签页
+  if (!(await requireLogin(router, '/shop'))) return
   const { href } = router.resolve('/shop/my-reviews')
   window.open(href, '_blank')
 }

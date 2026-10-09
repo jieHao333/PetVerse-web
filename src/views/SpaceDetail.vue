@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Star, StarFilled } from '@element-plus/icons-vue'
 import { deleteSpace, getSpaceDetail } from '@/api/space'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
+import { requireLogin } from '@/utils/auth'
 import {
   COMMENT_TARGET_SPACE,
   LIKE_TARGET_SPACE,
@@ -43,6 +44,8 @@ const loadSpace = async () => {
 const liking = ref(false)
 const onToggleLike = async () => {
   if (!space.value || liking.value) return
+  // 游客可浏览点赞数与评论，点赞需要先登录
+  if (!(await requireLogin(router, route.fullPath))) return
   liking.value = true
   const liked = !!space.value.liked
   const count = Number(space.value.likeCount || 0)
@@ -99,7 +102,8 @@ const onCommentPageChange = () => {
 }
 
 // 点击回复：comment 为空表示直接评论动态，否则回复某条评论
-const startReply = (comment = null) => {
+const startReply = async (comment = null) => {
+  if (!(await requireLogin(router, route.fullPath))) return
   commentTarget.value = comment
     ? {
         userId: comment.userId,
@@ -153,6 +157,7 @@ const commentRows = computed(() => {
 })
 
 const onSubmitComment = async () => {
+  if (!(await requireLogin(router, route.fullPath))) return
   if (!commentInput.value.trim()) {
     ElMessage.warning('请输入评论内容')
     return

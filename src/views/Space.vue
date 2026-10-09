@@ -1,9 +1,10 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { CircleClose, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import { deleteSpace, getSpacePage, saveSpace, updateSpace, uploadSpaceMedia } from '@/api/space'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
+import { requireLogin } from '@/utils/auth'
 import {
   COMMENT_TARGET_SPACE,
   LIKE_TARGET_SPACE,
@@ -12,6 +13,7 @@ import {
   unlikeTarget,
 } from '@/api/remark'
 
+const route = useRoute()
 const router = useRouter()
 
 const spaces = ref([])
@@ -85,6 +87,8 @@ const onSortChange = () => {
 // 点赞/取消点赞：乐观更新计数与状态，失败时回滚
 const likingIds = ref(new Set())
 const onToggleLike = async (item) => {
+  // 游客能看点赞数，点赞本身是写操作，先引导登录
+  if (!(await requireLogin(router, route.fullPath))) return
   if (likingIds.value.has(item.id)) return
   likingIds.value.add(item.id)
   const liked = !!item.liked
@@ -153,7 +157,8 @@ const onSizeChange = () => {
   loadSpaces()
 }
 
-const openCreate = () => {
+const openCreate = async () => {
+  if (!(await requireLogin(router, route.fullPath))) return
   isEdit.value = false
   form.value = { id: null, title: '', content: '', category: '', visibility: 0, mediaList: [] }
   dialogVisible.value = true

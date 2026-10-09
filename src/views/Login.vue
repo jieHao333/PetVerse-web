@@ -1,10 +1,12 @@
 <script setup>
 import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Lock, User } from '@element-plus/icons-vue'
 import { login } from '@/api/user'
+import { safeRedirect } from '@/utils/auth'
 import logo from '@/assets/logo.jpg'
 
+const route = useRoute()
 const router = useRouter()
 
 const formRef = ref()
@@ -28,7 +30,8 @@ const onSubmit = async () => {
     localStorage.setItem('token', data.token)
     localStorage.setItem('user', JSON.stringify(data.user))
     ElMessage.success('登录成功')
-    router.push({ name: 'home' })
+    // 被游客拦截带到登录页时带 redirect，登录成功后回跳操作前那一页
+    router.replace(safeRedirect(route.query.redirect) || { name: 'home' })
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
@@ -99,7 +102,7 @@ const onSubmit = async () => {
         </el-form>
 
         <div class="footer">
-          还没有账号？<router-link to="/register">立即注册</router-link>
+          还没有账号？<router-link :to="{ path: '/register', query: route.query }">立即注册</router-link>
         </div>
       </section>
     </main>

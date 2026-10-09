@@ -1,10 +1,12 @@
 <script setup>
 import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Lock, User } from '@element-plus/icons-vue'
 import { register } from '@/api/user'
+import { safeRedirect } from '@/utils/auth'
 import logo from '@/assets/logo.jpg'
 
+const route = useRoute()
 const router = useRouter()
 
 const formRef = ref()
@@ -49,7 +51,8 @@ const onSubmit = async () => {
     localStorage.setItem('token', data.token)
     localStorage.setItem('user', JSON.stringify(data.user))
     ElMessage.success('注册成功，欢迎加入 PetVerse')
-    router.push({ name: 'home' })
+    // 注册即自动登录，同样回到游客被拦截前那一页
+    router.replace(safeRedirect(route.query.redirect) || { name: 'home' })
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
@@ -124,7 +127,7 @@ const onSubmit = async () => {
         </el-form>
 
         <div class="footer">
-          已有账号？<router-link to="/login">去登录</router-link>
+          已有账号？<router-link :to="{ path: '/login', query: route.query }">去登录</router-link>
         </div>
       </section>
     </main>

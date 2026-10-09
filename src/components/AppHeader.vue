@@ -5,6 +5,7 @@ import { ArrowDown, ArrowLeft, Bell, Menu } from '@element-plus/icons-vue'
 import logo from '@/assets/logo.jpg'
 import { NOTIF_SOURCE, getUnreadCount, markRead, pageNotifications } from '@/api/notification'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
+import { isLoggedIn } from '@/utils/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -77,11 +78,12 @@ const recentLoading = ref(false)
 const bellVisible = ref(false)
 let pollTimer = null
 
-const isLoggedIn = () => !!localStorage.getItem('token')
+// 游客态：顶栏不展示消息与账号入口，改为登录/注册按钮
+const loggedIn = computed(() => isLoggedIn())
 
 // 拉取未读数（后端 Long 序列化为字符串，用 Number 还原）
 const loadUnreadCount = async () => {
-  if (!isLoggedIn()) {
+  if (!loggedIn.value) {
     unreadCount.value = 0
     return
   }
@@ -160,7 +162,7 @@ watch(
 watch(
   () => route.path,
   () => {
-    if (isLoggedIn()) loadUnreadCount()
+    if (loggedIn.value) loadUnreadCount()
   },
 )
 
@@ -227,20 +229,29 @@ onUnmounted(stopPolling)
             {{ item.label }}
           </div>
           <div class="drawer-divider"></div>
-          <div class="drawer-item" @click="goNav('/shop/cart')">购物车</div>
-          <div class="drawer-item" @click="goNav('/shop/orders')">我的订单</div>
+          <template v-if="loggedIn">
+            <div class="drawer-item" @click="goNav('/shop/cart')">购物车</div>
+            <div class="drawer-item" @click="goNav('/shop/orders')">我的订单</div>
+          </template>
           <div v-if="role === 'MERCHANT' || role === 'ADMIN'" class="drawer-item" @click="goNav('/merchant-center')">
             商家中心
           </div>
           <div v-if="role === 'ADMIN'" class="drawer-item" @click="goNav('/admin/merchant-audit')">
             入驻审批
           </div>
-          <div class="drawer-item danger" @click="onLogout">退出登录</div>
+          <template v-if="loggedIn">
+            <div class="drawer-item danger" @click="onLogout">退出登录</div>
+          </template>
+          <template v-else>
+            <div class="drawer-item" @click="goNav('/login')">登录</div>
+            <div class="drawer-item" @click="goNav('/register')">注册</div>
+          </template>
         </div>
       </el-drawer>
 
       <div class="right">
         <el-popover
+          v-if="loggedIn"
           v-model:visible="bellVisible"
           placement="bottom-end"
           trigger="click"
@@ -279,7 +290,7 @@ onUnmounted(stopPolling)
             <div class="notif-pop-footer" @click="goNotifications">查看全部消息</div>
           </div>
         </el-popover>
-        <el-dropdown trigger="click">
+        <el-dropdown v-if="loggedIn" trigger="click">
           <span class="user-trigger">
             <el-avatar :size="30" :src="user?.avatar || DEFAULT_AVATAR">
               {{ (user?.nickname || user?.username || 'U')[0].toUpperCase() }}
@@ -306,6 +317,11 @@ onUnmounted(stopPolling)
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <!-- 游客态：浏览不需要身份，顶栏只留登录/注册入口 -->
+        <div v-if="!loggedIn" class="guest-actions">
+          <el-button link @click="router.push('/login')">登录</el-button>
+          <el-button type="primary" round @click="router.push('/register')">注册</el-button>
+        </div>
       </div>
     </div>
   </header>
@@ -404,6 +420,12 @@ onUnmounted(stopPolling)
 .bell-badge {
   display: inline-flex;
   align-items: center;
+}
+/* 游客登录/注册入口 */
+.guest-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 /* 汉堡按钮：仅移动端主导航页显示 */
 .nav-toggle {

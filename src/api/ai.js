@@ -80,12 +80,12 @@ export function chatStream({ message, pet, sessionId, attachments, onMeta, onDel
       clearTimeout(connectTimer)
     }
 
-    // 非 2xx：401 清登录态并跳登录页（与 request.js 行为一致），其余提示服务暂不可用
+    // 非 2xx：401 清登录态并带 redirect 跳登录页（与 request.js 行为一致），其余提示服务暂不可用
     if (!response.ok) {
       if (response.status === 401) {
         localStorage.removeItem('token')
         localStorage.removeItem('user')
-        router.push({ name: 'login' })
+        router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
         onError?.('登录已失效，请重新登录')
       } else {
         onError?.('AI 服务暂时不可用，请稍后再试')
@@ -104,10 +104,10 @@ export function chatStream({ message, pet, sessionId, attachments, onMeta, onDel
         // 非 JSON 兑底：按服务暂不可用处理
       }
       if (result?.code === 401) {
-        // 与上方 401 分支保持一致：清登录态并跳登录页
+        // 与上方 401 分支保持一致：清登录态并带 redirect 跳登录页
         localStorage.removeItem('token')
         localStorage.removeItem('user')
-        router.push({ name: 'login' })
+        router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
         onError?.('登录已失效，请重新登录')
       } else {
         onError?.(result?.msg || 'AI 服务暂时不可用，请稍后再试')

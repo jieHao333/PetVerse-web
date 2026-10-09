@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Search, ShoppingCart } from '@element-plus/icons-vue'
 import { addCartItem, getStoreInfo, pageProducts } from '@/api/shop'
+import { requireLogin } from '@/utils/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,6 +99,8 @@ const openDetail = (item) => {
 
 // 加入购物车（同一商品重复加购后端会累加数量）
 const addToCart = async (productId, quantity) => {
+  // 游客可浏览店铺与商品，加购需要先登录
+  if (!(await requireLogin(router, route.fullPath))) return
   addingCart.value = true
   try {
     await addCartItem({ productId, quantity })
