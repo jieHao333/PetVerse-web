@@ -1,15 +1,10 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { Camera } from '@element-plus/icons-vue'
 import { getMe, updateUser, uploadAvatar } from '@/api/user'
-import { listMyPets, renamePet } from '@/api/pet'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
 
-const router = useRouter()
-
 const user = ref(null)
-// 用户名下全部宠物，分真实宠物（纯档案）与虚拟宠物（等级/经验/签到）两类
-const pets = ref([])
 const profileForm = reactive({ nickname: '', avatar: '' })
 const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
 const savingProfile = ref(false)
@@ -34,47 +29,8 @@ const onUploadAvatar = async ({ file }) => {
   }
 }
 
-// 宠物改名弹窗状态，支持对任意一只宠物改名
-const renameDialog = ref(false)
-const renameTarget = ref(null)
-const newName = ref('')
-const renaming = ref(false)
-
-const openRename = (target) => {
-  renameTarget.value = target
-  newName.value = target?.name || ''
-  renameDialog.value = true
-}
-
-const onRename = async () => {
-  const name = newName.value.trim()
-  if (!name) {
-    ElMessage.warning('宠物名称不能为空')
-    return
-  }
-  renaming.value = true
-  try {
-    const updated = await renamePet(renameTarget.value.id, name)
-    const idx = pets.value.findIndex((p) => p.id === updated.id)
-    if (idx > -1) pets.value[idx] = updated
-    renameDialog.value = false
-    ElMessage.success(`宠物已改名为 ${name}`)
-  } catch (e) {
-    ElMessage.error(e.message)
-  } finally {
-    renaming.value = false
-  }
-}
-
-// 拉取全部宠物，按类型在卡片中分真实/虚拟展示
-const loadPets = async () => {
-  pets.value = await listMyPets()
-}
-
-// 点击宠物头像：新标签页打开该宠物的身份证详情页
-const openIdentity = (pet) => {
-  window.open(router.resolve(`/pet/identity/${pet.id}`).href, '_blank')
-}
+// 日期展示：2026-08-22T13:58 -> 2026-08-22
+const formatDate = (t) => (t ? String(t).replace('T', ' ').slice(0, 10) : '')
 
 onMounted(async () => {
   try {
@@ -84,14 +40,9 @@ onMounted(async () => {
   } catch (e) {
     ElMessage.error(e.message)
   }
-  // 加载宠物信息，无宠物时展示领养入口，失败不阻断页面
-  try {
-    await loadPets()
-  } catch {
-    pets.value = []
-  }
 })
 
+// 保存昵称与头像地址；账号(username)是登录凭据，只读展示不可改
 const onSaveProfile = async () => {
   savingProfile.value = true
   try {
@@ -132,68 +83,18 @@ const onSavePassword = async () => {
 
 <template>
   <div class="page">
-    <div class="page-container profile-container">
-      <div class="profile-left">
-        <!-- 宠物信息 -->
-        <el-card shadow="never">
-          <template #header>
-            <span class="card-title">我的宠物</span>
-          </template>
-
-          <div v-if="pets.length" class="pet-list">
-            <div v-for="p in pets" :key="p.id" class="pet-row">
-              <el-avatar
-                :size="44"
-                :src="p.imageUrl || ''"
-                class="pet-avatar-link"
-                title="点击查看宠物身份证"
-                @click="openIdentity(p)"
-              >{{ (p.name || '宠')[0] }}</el-avatar>
-              <div class="pet-row-info">
-                <div class="pet-row-name">
-                  {{ p.name }}
-                  <el-tag v-if="p.type === 'REAL'" size="small" effect="plain" round>真实</el-tag>
-                  <span v-else class="pet-row-lv">Lv.{{ p.level }}</span>
-                </div>
-                <div class="pet-row-breed">
-                  <template v-if="p.type === 'REAL'">
-                    {{ p.species || '未填种类' }} · {{ p.genderName || '未填性别' }}
-                  </template>
-                  <template v-else>{{ p.species }} · {{ p.breed }}</template>
-                </div>
-              </div>
-              <el-button
-                v-if="p.type === 'REAL'"
-                size="small"
-                round
-                type="primary"
-                plain
-                @click="router.push(`/pet/profile/${p.id}`)"
-              >
-                {{ p.cardIssueDate ? '修改信息' : '完善信息' }}
-              </el-button>
-              <el-button size="small" round class="rename-btn" @click="openRename(p)">改名</el-button>
-            </div>
-            <el-button class="adopt-btn" size="small" round @click="router.push('/claim')">
-              领养虚拟宠物
-            </el-button>
-          </div>
-
-          <div v-else class="pet-empty">
-            <p>你还没有宠物，登记真实宠物或领养一只虚拟伙伴吧</p>
-            <el-button type="primary" @click="router.push('/claim')">去领养宠物</el-button>
-          </div>
-        </el-card>
-
-        <!-- 基本资料 -->
-        <el-card shadow="never">
-          <template #header>
-            <span class="card-title">基本资料</span>
-          </template>
-
-          <div class="user-head">
+    <!-- 单列卡片流，与用户主页保持同一套视觉 -->
+    <div class="page-container up-container">
+      <!-- 账号信息 -->
+      <el-card shadow="never">
+        <template #header>
+          <span class="card-title">账号信息</span>
+        </template>
+        <div class="up-head">
+          <!-- 头像即换头像入口：悬停显示蒙层，点击选择图片 -->
           <el-upload
             class="avatar-uploader"
+            :class="{ 'is-busy': uploadingAvatar }"
             :show-file-list="false"
             accept="image/png,image/jpeg,image/jpg,image/webp"
             :http-request="onUploadAvatar"
@@ -202,18 +103,33 @@ const onSavePassword = async () => {
               <el-avatar :size="80" :src="profileForm.avatar || DEFAULT_AVATAR">
                 {{ (profileForm.nickname || user?.username || 'U')[0].toUpperCase() }}
               </el-avatar>
+              <div class="avatar-mask">
+                <el-icon :size="18"><Camera /></el-icon>
+                <span>{{ uploadingAvatar ? '上传中…' : '更换头像' }}</span>
+              </div>
             </div>
-            <div class="avatar-tip">{{ uploadingAvatar ? '上传中...' : '点击更换头像' }}</div>
           </el-upload>
           <div>
-            <div class="name">{{ profileForm.nickname || user?.nickname || '未设置' }}</div>
-            <div class="username">账号: {{ user?.username }}</div>
+            <div class="up-name">{{ profileForm.nickname || user?.username || '未设置' }}</div>
+            <div class="up-account">账号: {{ user?.username || '-' }}</div>
+            <div class="up-meta">注册于 {{ formatDate(user?.createTime) || '—' }}</div>
           </div>
         </div>
+      </el-card>
 
-        <el-form :model="profileForm" label-width="80px">
+      <!-- 修改昵称 -->
+      <el-card shadow="never">
+        <template #header>
+          <span class="card-title">修改昵称</span>
+        </template>
+        <el-form class="setting-form" :model="profileForm" label-width="80px" @submit.prevent>
           <el-form-item label="昵称">
-            <el-input v-model.trim="profileForm.nickname" placeholder="你的社交展示名" maxlength="30" />
+            <el-input
+              v-model.trim="profileForm.nickname"
+              placeholder="你的社交展示名"
+              maxlength="30"
+              show-word-limit
+            />
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="savingProfile" @click="onSaveProfile">
@@ -221,16 +137,14 @@ const onSavePassword = async () => {
             </el-button>
           </el-form-item>
         </el-form>
-        </el-card>
-      </div>
+      </el-card>
 
       <!-- 修改密码 -->
       <el-card shadow="never">
         <template #header>
           <span class="card-title">修改密码</span>
         </template>
-
-        <el-form :model="pwdForm" label-width="80px">
+        <el-form class="setting-form" :model="pwdForm" label-width="80px" @submit.prevent>
           <el-form-item label="原密码" required>
             <el-input
               v-model="pwdForm.oldPassword"
@@ -266,21 +180,6 @@ const onSavePassword = async () => {
         </el-form>
       </el-card>
     </div>
-
-    <!-- 修改宠物名字 -->
-    <el-dialog v-model="renameDialog" title="修改宠物名字" width="380px">
-      <el-input
-        v-model="newName"
-        maxlength="50"
-        show-word-limit
-        placeholder="给它取个新名字吧"
-        clearable
-      />
-      <template #footer>
-        <el-button @click="renameDialog = false">取消</el-button>
-        <el-button type="primary" :loading="renaming" @click="onRename">保存</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -288,45 +187,11 @@ const onSavePassword = async () => {
 .page {
   min-height: 100vh;
 }
-.profile-container {
+.up-container {
   max-width: none;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  align-items: start;
-}
-.profile-left {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  min-width: 0;
-}
-@media (max-width: 860px) {
-  .profile-container {
-    grid-template-columns: 1fr;
-  }
-}
-@media (max-width: 768px) {
-  /* 宠物行窄屏换行：名称信息独占一行，操作按钮移到下方 */
-  .pet-row {
-    flex-wrap: wrap;
-    row-gap: 10px;
-  }
-  .pet-row-info {
-    flex: 1 1 calc(100% - 68px);
-  }
-  .pet-row .el-button {
-    margin-left: 0;
-  }
-  .pet-row .el-button + .el-button {
-    margin-left: 8px;
-  }
-  .user-head {
-    gap: 14px;
-  }
-  .name {
-    font-size: 19px;
-  }
 }
 .card-title {
   font-weight: 700;
@@ -342,114 +207,62 @@ const onSavePassword = async () => {
   border-radius: 2px;
   background: var(--pv-ink);
 }
-.user-head {
+.up-head {
   display: flex;
   align-items: center;
   gap: 20px;
-  margin-bottom: 24px;
+}
+.avatar-uploader {
+  cursor: pointer;
+  flex-shrink: 0;
 }
 .avatar-ring {
+  position: relative;
   padding: 3px;
   border-radius: 50%;
   background: var(--pv-ink);
-  flex-shrink: 0;
 }
 .avatar-ring :deep(.el-avatar) {
   border: 3px solid #fff;
   font-size: 26px;
+  display: block;
 }
-.avatar-uploader {
-  cursor: pointer;
-  text-align: center;
-  flex-shrink: 0;
+/* 悬停/上传中在头像上盖一层提示，点击即弹图片选择 */
+.avatar-mask {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(23, 24, 28, 0.58);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.18s ease;
 }
-.avatar-uploader:hover .avatar-ring {
-  opacity: 0.85;
+.avatar-uploader:hover .avatar-mask,
+.avatar-uploader.is-busy .avatar-mask {
+  opacity: 1;
 }
-.avatar-tip {
-  font-size: 12px;
-  color: var(--pv-text-secondary);
-  margin-top: 6px;
-}
-.name {
+.up-name {
   font-size: 22px;
   font-weight: 700;
   color: var(--pv-text);
 }
-.username {
+.up-account {
   color: var(--pv-text-secondary);
   margin-top: 4px;
 }
-
-/* 宠物信息卡片 */
-.rename-btn {
-  font-weight: 600;
-  color: var(--pv-text-secondary);
-  border-color: var(--pv-border);
-}
-.rename-btn:hover,
-.rename-btn:focus {
-  color: var(--pv-ink);
-  border-color: var(--pv-ink);
-  background: var(--pv-tint);
-}
-.pet-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 0;
-  color: var(--pv-text-secondary);
-}
-/* 宠物列表 */
-.pet-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.pet-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid var(--pv-border);
-  border-radius: 12px;
-  padding: 10px 14px;
-  background: #fff;
-}
-.pet-row-info {
-  flex: 1;
-  min-width: 0;
-}
-/* 宠物头像：可点击新标签打开身份卡，悬停轻微放大 */
-.pet-avatar-link {
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: transform 0.15s ease;
-}
-.pet-avatar-link:hover {
-  transform: scale(1.08);
-}
-.pet-row-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  color: var(--pv-text);
-}
-.pet-row-lv {
+.up-meta {
   font-size: 12px;
   color: var(--pv-text-secondary);
-  font-weight: 500;
+  margin-top: 6px;
 }
-.pet-row-breed {
-  font-size: 12px;
-  color: var(--pv-text-secondary);
-  margin-top: 2px;
-}
-.adopt-btn {
-  align-self: flex-start;
-  font-weight: 600;
-  color: var(--pv-text-secondary);
-  border-color: var(--pv-border);
+/* 单行表单：输入框不随卡片拉满整行 */
+.setting-form :deep(.el-input) {
+  max-width: 380px;
 }
 </style>

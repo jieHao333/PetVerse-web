@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Star, StarFilled } from '@element-plus/icons-vue'
 import { deleteSpace, getSpaceDetail } from '@/api/space'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
+import { splitTopics } from '@/utils/topic'
 import { requireLogin } from '@/utils/auth'
 import {
   COMMENT_TARGET_SPACE,
@@ -339,8 +340,15 @@ onMounted(loadAll)
               </span>
               <div class="feed-sub">
                 <span class="feed-time">{{ formatTime(space.createTime) }}</span>
-                <el-tag v-if="space.category" size="small" type="info" effect="plain" round>
-                  {{ space.category }}
+                <el-tag
+                  v-for="t in splitTopics(space.category)"
+                  :key="t"
+                  size="small"
+                  type="info"
+                  effect="plain"
+                  round
+                >
+                  {{ t }}
                 </el-tag>
               </div>
             </div>

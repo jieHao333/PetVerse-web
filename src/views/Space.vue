@@ -5,6 +5,7 @@ import { CircleClose, Plus, Search, Star, StarFilled } from '@element-plus/icons
 import { deleteSpace, getSpacePage, saveSpace, updateSpace, uploadSpaceMedia } from '@/api/space'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
 import { requireLogin } from '@/utils/auth'
+import { MAX_TOPICS, splitTopics } from '@/utils/topic'
 import {
   COMMENT_TARGET_SPACE,
   LIKE_TARGET_SPACE,
@@ -21,11 +22,9 @@ const total = ref(0)
 const pageNum = ref(1)
 const pageSize = ref(10)
 const keyword = ref('')
-const category = ref('')
-// 排序方式：latest-最新 / hot-最热(按点赞数热度)
-const sort = ref('latest')
-// 发布时间范围：[开始日期, 结束日期]，格式 YYYY-MM-DD，起止均含当天
-const dateRange = ref(null)
+// 话题页（space/topic/:category）从路由参数取话题并锁定，圈子主页则为可编辑的筛选条件
+const category = ref(route.params.category || '')
+const topicMode = computed(() => !!route.params.category)
 const loading = ref(false)
 
 // 当前登录用户ID，仅本人动态展示编辑/删除入口
@@ -41,7 +40,7 @@ const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 const dialogVisible = ref(false)
 const saving = ref(false)
 const isEdit = ref(false)
-const form = ref({ id: null, title: '', content: '', category: '', visibility: 0, mediaList: [] })
+const form = ref({ id: null, title: '', content: '', topics: [], visibility: 0, mediaList: [] })
 // 进行中的上传数量（支持多文件并发上传），计数归零才允许发布
 const uploadingCount = ref(0)
 const uploading = computed(() => uploadingCount.value > 0)
@@ -54,10 +53,6 @@ const loadSpaces = async () => {
       pageSize: pageSize.value,
       keyword: keyword.value || undefined,
       category: category.value || undefined,
-      sort: sort.value,
-      // 选中的日期换算为当天零点与当天末尾，确保起止日期当天的动态都能命中
-      startTime: dateRange.value?.[0] ? `${dateRange.value[0]} 00:00:00` : undefined,
-      endTime: dateRange.value?.[1] ? `${dateRange.value[1]} 23:59:59` : undefined,
     })
     spaces.value = data.records
     // 后端 Long 统一序列化为字符串（防雪花ID精度丢失），total 需还原为数字供分页组件使用
@@ -74,12 +69,6 @@ const loadSpaces = async () => {
 onMounted(loadSpaces)
 
 const onSearch = () => {
-  pageNum.value = 1
-  loadSpaces()
-}
-
-// 切换排序后回到第一页重新加载
-const onSortChange = () => {
   pageNum.value = 1
   loadSpaces()
 }
@@ -138,6 +127,12 @@ const openDetail = (item, focusComment = false) => {
   window.open(router.resolve({ name: 'spaceDetail', params: { id: item.id }, query }).href, '_blank')
 }
 
+// 点击话题标签，新标签页打开该话题页，分页浏览同一话题下的全部动态
+const openTopic = (cat) => {
+  if (!cat) return
+  window.open(router.resolve({ name: 'spaceTopic', params: { category: cat } }).href, '_blank')
+}
+
 // 列表页文本截断长度，超出部分以省略号提示，完整内容在详情页查看
 // 媒体占位符（[[media:N]]）仅用于详情页定位，列表展示时剥离
 const CONTENT_LIMIT = 120
@@ -160,7 +155,8 @@ const onSizeChange = () => {
 const openCreate = async () => {
   if (!(await requireLogin(router, route.fullPath))) return
   isEdit.value = false
-  form.value = { id: null, title: '', content: '', category: '', visibility: 0, mediaList: [] }
+  // 话题页或已筛选话题时，发布默认带上当前话题
+  form.value = { id: null, title: '', content: '', topics: category.value ? [category.value] : [], visibility: 0, mediaList: [] }
   dialogVisible.value = true
 }
 
@@ -170,7 +166,7 @@ const openEdit = (item) => {
     id: item.id,
     title: item.title || '',
     content: item.content,
-    category: item.category || '',
+    topics: splitTopics(item.category),
     visibility: Number(item.visibility || 0),
     mediaList: (item.mediaList || []).map((m) => ({ ...m })),
   }
@@ -259,7 +255,7 @@ const onSave = async () => {
     const payload = {
       title: form.value.title || undefined,
       content: form.value.content,
-      category: form.value.category || undefined,
+      category: form.value.topics.join(',') || undefined,
       visibility: form.value.visibility,
       mediaList: form.value.mediaList,
     }
@@ -312,8 +308,14 @@ const gotoProfile = (userId) => {
     <div class="page-container">
       <div class="page-head">
         <div>
-          <h2 class="page-title">圈子</h2>
-          <p class="page-desc">看看大家与宠物在一起的每个瞬间 · 发布新动态可为宠物 +10 经验</p>
+          <h2 class="page-title">{{ topicMode ? `话题 · #${category}` : '圈子' }}</h2>
+          <p class="page-desc">
+            {{
+              topicMode
+                ? `浏览「${category}」话题下的全部动态`
+                : '看看大家与宠物在一起的每个瞬间 · 发布新动态可为宠物 +10 经验'
+            }}
+          </p>
         </div>
         <el-button type="primary" size="large" :icon="Plus" @click="openCreate">发布动态</el-button>
       </div>
@@ -329,28 +331,15 @@ const gotoProfile = (userId) => {
           @clear="onSearch"
         />
         <el-input
+          v-if="!topicMode"
           v-model.trim="category"
-          placeholder="按分类筛选"
+          placeholder="按话题筛选"
           clearable
           class="toolbar-input narrow"
           @keyup.enter="onSearch"
           @clear="onSearch"
         />
-        <el-date-picker
-          v-model="dateRange"
-          type="daterange"
-          range-separator="至"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          value-format="YYYY-MM-DD"
-          clearable
-          @change="onSearch"
-        />
         <el-button @click="onSearch">搜索</el-button>
-        <el-radio-group v-model="sort" class="sort-toggle" @change="onSortChange">
-          <el-radio-button value="latest">最新</el-radio-button>
-          <el-radio-button value="hot">最热</el-radio-button>
-        </el-radio-group>
       </div>
 
       <!-- 动态流 -->
@@ -366,9 +355,14 @@ const gotoProfile = (userId) => {
               </span>
               <div class="feed-sub">
                 <span class="feed-time">{{ formatTime(item.createTime) }}</span>
-                <el-tag v-if="item.category" size="small" type="info" effect="plain" round>
-                  {{ item.category }}
-                </el-tag>
+                <span
+                  v-for="t in splitTopics(item.category)"
+                  :key="t"
+                  class="topic-chip"
+                  @click.stop="openTopic(t)"
+                >
+                  # {{ t }}
+                </span>
               </div>
             </div>
             <div v-if="isMySpace(item)" class="feed-actions">
@@ -424,7 +418,7 @@ const gotoProfile = (userId) => {
 
         <div v-if="!loading && !spaces.length" class="feed-empty pv-panel">
           {{
-            keyword || category || dateRange
+            keyword || category
               ? '没有搜索到相关动态'
               : '还没有可见的动态，点击「发布动态」分享第一个瞬间吧'
           }}
@@ -467,8 +461,17 @@ const gotoProfile = (userId) => {
         <el-form-item label="标题">
           <el-input v-model.trim="form.title" placeholder="选填，给动态起个标题" maxlength="100" show-word-limit />
         </el-form-item>
-        <el-form-item label="分类">
-          <el-input v-model.trim="form.category" placeholder="如：日常、养宠经验（选填）" maxlength="50" />
+        <el-form-item label="话题">
+          <el-select
+            v-model="form.topics"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            :multiple-limit="MAX_TOPICS"
+            placeholder="输入后回车添加，最多 6 个"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="图片视频">
           <div class="media-picker">
@@ -551,19 +554,24 @@ const gotoProfile = (userId) => {
 .toolbar-input.narrow {
   width: 160px;
 }
-/* 日期范围选择器默认 350px 偏宽，收窄与搜索框协调 */
-.toolbar :deep(.el-date-editor) {
-  width: 250px;
-  flex-shrink: 0;
+/* 话题标签：点击新标签页打开同话题动态 */
+.topic-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--pv-ink);
+  background: var(--pv-tint);
+  border: 1px solid var(--pv-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.toolbar :deep(.el-range-separator) {
-  padding: 0 2px;
-}
-.toolbar :deep(.el-range-input) {
-  font-size: 13px;
-}
-.sort-toggle {
-  margin-left: auto;
+.topic-chip:hover {
+  background: var(--pv-ink);
+  border-color: var(--pv-ink);
+  color: #fff;
 }
 
 /* 点赞行 */
@@ -800,13 +808,6 @@ const gotoProfile = (userId) => {
   .toolbar-input,
   .toolbar-input.narrow {
     width: 100%;
-  }
-  .toolbar :deep(.el-date-editor) {
-    width: 100%;
-    flex-shrink: 1;
-  }
-  .sort-toggle {
-    margin-left: 0;
   }
   .pager {
     justify-content: center;

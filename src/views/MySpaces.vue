@@ -1,8 +1,12 @@
 <script setup>
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { Search } from '@element-plus/icons-vue'
 import { getSpacePage } from '@/api/space'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
+import { splitTopics } from '@/utils/topic'
+
+const router = useRouter()
 
 const me = JSON.parse(localStorage.getItem('user') || 'null')
 
@@ -28,6 +32,8 @@ const loadMoreSpaces = async () => {
       userId: me?.id,
       pageNum: pageNum.value,
       pageSize: SPACE_PAGE_SIZE,
+      // 我的动态固定按发布时间倒序（最新在最上面），不参与圈子的综合热度排序
+      sort: 'latest',
       keyword: keyword.value || undefined,
       // 选中的日期换算为当天零点与当天末尾，确保起止日期当天的动态都能命中
       startTime: dateRange.value?.[0] ? `${dateRange.value[0]} 00:00:00` : undefined,
@@ -70,6 +76,20 @@ const onSearchSpace = async () => {
 
 // 时间格式化：2026-08-22T13:58 -> 2026-08-22 13:58
 const formatTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
+
+// 点击卡片新标签页打开动态详情，与圈子列表交互一致；本人动态（含「仅自己」）详情页均可访问
+const openDetail = (item) => {
+  window.open(router.resolve({ name: 'spaceDetail', params: { id: item.id } }).href, '_blank')
+}
+
+// 列表页正文截断（与圈子一致）：媒体占位符（[[media:N]]）仅供详情页定位，展示时剥离
+const CONTENT_LIMIT = 120
+const stripMediaTokens = (text) => (text || '').replace(/\[\[media:\d+\]\]/g, '')
+const isContentTruncated = (item) => stripMediaTokens(item.content).length > CONTENT_LIMIT
+const truncatedContent = (item) => {
+  const content = stripMediaTokens(item.content)
+  return content.length > CONTENT_LIMIT ? `${content.slice(0, CONTENT_LIMIT)}…` : content
+}
 
 // 媒体九宫格：单张占满一行，两张/四张两列，其余三列（与圈子一致）
 const mediaGridClass = (item) => {
@@ -124,7 +144,7 @@ onUnmounted(() => {
 
       <!-- 动态流 -->
       <div class="feed-list">
-        <div v-for="item in spaces" :key="item.id" class="feed-card pv-panel">
+        <div v-for="item in spaces" :key="item.id" class="feed-card pv-panel" @click="openDetail(item)">
           <div class="feed-head">
             <el-avatar :size="40" :src="item.authorAvatar || me?.avatar || DEFAULT_AVATAR" class="feed-avatar">
               {{ (item.authorNickname || me?.nickname || me?.username || 'U')[0]?.toUpperCase() }}
@@ -133,17 +153,27 @@ onUnmounted(() => {
               <span class="feed-author">{{ item.authorNickname || me?.nickname || me?.username }}</span>
               <div class="feed-sub">
                 <span class="feed-time">{{ formatTime(item.createTime) }}</span>
-                <el-tag v-if="item.category" size="small" type="info" effect="plain" round>
-                  {{ item.category }}
+                <el-tag
+                  v-for="t in splitTopics(item.category)"
+                  :key="t"
+                  size="small"
+                  type="info"
+                  effect="plain"
+                  round
+                >
+                  {{ t }}
                 </el-tag>
               </div>
             </div>
           </div>
 
           <div v-if="item.title" class="feed-title">{{ item.title }}</div>
-          <div class="feed-content">{{ item.content }}</div>
+          <!-- 列表页仅展示截断后的部分文本，完整内容点击卡片进详情页查看 -->
+          <div class="feed-content">{{ truncatedContent(item) }}</div>
+          <div v-if="isContentTruncated(item)" class="feed-more">查看全文 →</div>
 
-          <div v-if="item.mediaList && item.mediaList.length" :class="mediaGridClass(item)">
+          <!-- 媒体区阻止冒泡：图片预览放大、视频播放不触发卡片跳转详情 -->
+          <div v-if="item.mediaList && item.mediaList.length" :class="mediaGridClass(item)" @click.stop>
             <template v-for="(media, idx) in item.mediaList" :key="idx">
               <el-image
                 v-if="media.mediaType === 0"
@@ -214,6 +244,11 @@ onUnmounted(() => {
 }
 .feed-card {
   padding: 18px 20px;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+.feed-card:hover {
+  box-shadow: var(--pv-shadow);
 }
 .feed-head {
   display: flex;
@@ -257,6 +292,12 @@ onUnmounted(() => {
   color: var(--pv-text);
   white-space: pre-wrap;
   word-break: break-word;
+}
+.feed-more {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pv-ink);
 }
 
 /* 媒体九宫格 */

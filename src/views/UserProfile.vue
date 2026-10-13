@@ -5,7 +5,10 @@ import { Search } from '@element-plus/icons-vue'
 import { getUserById } from '@/api/user'
 import { getPetByUserId } from '@/api/pet'
 import { getSpacePage } from '@/api/space'
+import { acceptFriendRequest, getFriendRelation, rejectFriendRequest, sendFriendRequest } from '@/api/social'
+import { currentUser } from '@/utils/auth'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
+import { splitTopics } from '@/utils/topic'
 
 const route = useRoute()
 const router = useRouter()
@@ -14,6 +17,67 @@ const loading = ref(true)
 const user = ref(null)
 const pet = ref(null)
 const spaces = ref([])
+
+// 加好友 / 聊一聊入口：查看自己主页时不展示，关系状态拉取失败也隐藏，避免给出错误的按钮
+const me = currentUser()
+const relation = ref(null)
+const friendActionLoading = ref(false)
+const isSelf = computed(() => String(user.value?.id ?? '') === String(me?.id ?? ''))
+const showActions = computed(() => !!user.value && !isSelf.value && !!relation.value)
+const isFriend = computed(() => relation.value?.friend === true)
+
+const loadRelation = async () => {
+  try {
+    relation.value = await getFriendRelation(route.params.id)
+  } catch {
+    relation.value = null
+  }
+}
+
+const onAddFriend = async () => {
+  friendActionLoading.value = true
+  try {
+    await sendFriendRequest(route.params.id)
+    ElMessage.success(`已向 ${displayName.value} 发送好友申请`)
+    await loadRelation()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    friendActionLoading.value = false
+  }
+}
+
+// 对方发来的待处理申请就地处理，省得再跑一趟好友页
+const onAccept = async () => {
+  friendActionLoading.value = true
+  try {
+    await acceptFriendRequest(relation.value.receivedRequestId)
+    ElMessage.success(`已和 ${displayName.value} 成为好友`)
+    await loadRelation()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    friendActionLoading.value = false
+  }
+}
+
+const onReject = async () => {
+  friendActionLoading.value = true
+  try {
+    await rejectFriendRequest(relation.value.receivedRequestId)
+    ElMessage.success('已拒绝该申请')
+    await loadRelation()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    friendActionLoading.value = false
+  }
+}
+
+// 新标签页打开一对一聊天页，与动态详情页的打开方式一致
+const openChat = () => {
+  window.open(router.resolve({ name: 'chat', params: { userId: route.params.id } }).href, '_blank')
+}
 
 // TA 的动态：无限滚动加载，每次 10 条，后端已按发布时间倒序（最新在最上面）
 const SPACE_PAGE_SIZE = 10
@@ -35,6 +99,8 @@ const loadMoreSpaces = async () => {
       userId: route.params.id,
       pageNum: pageNum.value,
       pageSize: SPACE_PAGE_SIZE,
+      // 用户主页时间线固定按发布时间倒序（最新在最上面），不参与圈子的综合热度排序
+      sort: 'latest',
       keyword: keyword.value || undefined,
       // 选中的日期换算为当天零点与当天末尾，确保起止日期当天的动态都能命中
       startTime: dateRange.value?.[0] ? `${dateRange.value[0]} 00:00:00` : undefined,
@@ -75,6 +141,12 @@ const onSearchSpace = async () => {
   await loadMoreSpaces()
 }
 
+// 新标签页打开动态详情页，与圈子列表跳转方式保持一致；focusComment 为真时详情页自动聚焦评论输入框
+const openDetail = (item, focusComment = false) => {
+  const query = focusComment ? { focus: 'comment' } : undefined
+  window.open(router.resolve({ name: 'spaceDetail', params: { id: item.id }, query }).href, '_blank')
+}
+
 const displayName = computed(() => user.value?.nickname || user.value?.username || '用户')
 
 // 宠物升级进度百分比，满级或无升级需求时为 100%
@@ -100,6 +172,8 @@ onMounted(async () => {
     return
   }
   loading.value = false
+  // 好友关系只影响操作按钮，拉取失败静默即可
+  if (!isSelf.value) loadRelation()
   try {
     pet.value = await getPetByUserId(userId)
   } catch {
@@ -118,85 +192,95 @@ onUnmounted(() => {
 
 <template>
   <div class="page">
+    <!-- 单列纵向排布：账号信息 → TA 的宠物 → TA 的动态 -->
     <div v-loading="loading" class="page-container up-container">
-      <div class="up-left">
-        <!-- 账号信息 -->
-        <el-card shadow="never">
-          <template #header>
-            <span class="card-title">账号信息</span>
-          </template>
-          <div v-if="user" class="up-head">
+      <!-- 账号信息 -->
+      <el-card shadow="never">
+        <template #header>
+          <span class="card-title">账号信息</span>
+        </template>
+        <div v-if="user" class="up-head">
+          <div class="avatar-ring">
+            <el-avatar :size="80" :src="user.avatar || DEFAULT_AVATAR">
+              {{ (user.nickname || user.username || 'U')[0].toUpperCase() }}
+            </el-avatar>
+          </div>
+          <div class="up-info">
+            <div class="up-name">{{ displayName }}</div>
+            <div class="up-account">账号: {{ user.username }}</div>
+            <div class="up-meta">注册于 {{ formatTime(user.createTime) }}</div>
+          </div>
+          <!-- 加好友与聊一聊：仅访问他人主页且关系状态可用时展示 -->
+          <div v-if="showActions" class="up-actions">
+            <el-button type="primary" round @click="openChat">聊一聊</el-button>
+            <el-tag v-if="isFriend" type="success" effect="plain" round>已是好友</el-tag>
+            <template v-else-if="relation.receivedRequestId">
+              <el-button round :loading="friendActionLoading" @click="onAccept">同意申请</el-button>
+              <el-button round :disabled="friendActionLoading" @click="onReject">拒绝</el-button>
+            </template>
+            <el-button v-else-if="relation.requestSent" round disabled>已申请</el-button>
+            <el-button v-else round :loading="friendActionLoading" @click="onAddFriend">加好友</el-button>
+          </div>
+        </div>
+      </el-card>
+
+      <!-- 宠物信息 -->
+      <el-card shadow="never">
+        <template #header>
+          <span class="card-title">TA 的宠物</span>
+        </template>
+        <div v-if="pet" class="pet-block">
+          <div class="pet-head">
             <div class="avatar-ring">
-              <el-avatar :size="80" :src="user.avatar || DEFAULT_AVATAR">
-                {{ (user.nickname || user.username || 'U')[0].toUpperCase() }}
+              <el-avatar :size="64" :src="pet.imageUrl || ''">
+                {{ (pet.name || '宠')[0] }}
               </el-avatar>
             </div>
             <div>
-              <div class="up-name">{{ displayName }}</div>
-              <div class="up-account">账号: {{ user.username }}</div>
-              <div class="up-meta">注册于 {{ formatTime(user.createTime) }}</div>
+              <div class="pet-name-row">
+                <span class="pet-name">{{ pet.name }}</span>
+                <!-- 真实宠物展示档案标签，虚拟宠物展示等级标签 -->
+                <el-tag v-if="pet.type === 'REAL'" effect="plain" round class="real-tag">
+                  真实宠物
+                </el-tag>
+                <el-tag v-else effect="dark" round class="lv-tag">Lv.{{ pet.level }}</el-tag>
+              </div>
+              <div class="pet-breed">
+                <template v-if="pet.type === 'REAL'">
+                  {{ pet.species || '未填种类' }} · {{ pet.genderName || '未填性别' }}
+                </template>
+                <template v-else>{{ pet.species }} · {{ pet.breed }}</template>
+              </div>
             </div>
           </div>
-        </el-card>
 
-        <!-- 宠物信息 -->
-        <el-card shadow="never">
-          <template #header>
-            <span class="card-title">TA 的宠物</span>
-          </template>
-          <div v-if="pet" class="pet-block">
-            <div class="pet-head">
-              <div class="avatar-ring">
-                <el-avatar :size="64" :src="pet.imageUrl || ''">
-                  {{ (pet.name || '宠')[0] }}
-                </el-avatar>
-              </div>
-              <div>
-                <div class="pet-name-row">
-                  <span class="pet-name">{{ pet.name }}</span>
-                  <!-- 真实宠物展示档案标签，虚拟宠物展示等级标签 -->
-                  <el-tag v-if="pet.type === 'REAL'" effect="plain" round class="real-tag">
-                    真实宠物
-                  </el-tag>
-                  <el-tag v-else effect="dark" round class="lv-tag">Lv.{{ pet.level }}</el-tag>
-                </div>
-                <div class="pet-breed">
-                  <template v-if="pet.type === 'REAL'">
-                    {{ pet.species || '未填种类' }} · {{ pet.genderName || '未填性别' }}
-                  </template>
-                  <template v-else>{{ pet.species }} · {{ pet.breed }}</template>
-                </div>
-              </div>
+          <!-- 真实宠物：展示档案信息（生日/绝育/收养时间），不含等级经验 -->
+          <div v-if="pet.type === 'REAL'" class="pet-profile">
+            <div class="pf-item">
+              <span class="pf-label">生日</span>
+              <span class="pf-value">{{ pet.birthday || '未填写' }}</span>
             </div>
-
-            <!-- 真实宠物：展示档案信息（生日/绝育/收养时间），不含等级经验 -->
-            <div v-if="pet.type === 'REAL'" class="pet-profile">
-              <div class="pf-item">
-                <span class="pf-label">生日</span>
-                <span class="pf-value">{{ pet.birthday || '未填写' }}</span>
-              </div>
-              <div class="pf-item">
-                <span class="pf-label">是否绝育</span>
-                <span class="pf-value">{{ pet.sterilized ? '已绝育' : '未绝育' }}</span>
-              </div>
-              <div class="pf-item">
-                <span class="pf-label">收养时间</span>
-                <span class="pf-value">{{ pet.adoptionDate || '未填写' }}</span>
-              </div>
+            <div class="pf-item">
+              <span class="pf-label">是否绝育</span>
+              <span class="pf-value">{{ pet.sterilized ? '已绝育' : '未绝育' }}</span>
             </div>
-
-            <!-- 虚拟宠物：展示升级进度 -->
-            <div v-else class="pet-exp">
-              <div class="exp-label">
-                <span>升级进度</span>
-                <span>{{ pet.exp }} / {{ pet.nextLevelExp || '已满级' }}</span>
-              </div>
-              <el-progress :percentage="petProgress" :stroke-width="10" :show-text="false" />
+            <div class="pf-item">
+              <span class="pf-label">收养时间</span>
+              <span class="pf-value">{{ pet.adoptionDate || '未填写' }}</span>
             </div>
           </div>
-          <p v-else class="empty-tip">TA 还没有宠物</p>
-        </el-card>
-      </div>
+
+          <!-- 虚拟宠物：展示升级进度 -->
+          <div v-else class="pet-exp">
+            <div class="exp-label">
+              <span>升级进度</span>
+              <span>{{ pet.exp }} / {{ pet.nextLevelExp || '已满级' }}</span>
+            </div>
+            <el-progress :percentage="petProgress" :stroke-width="10" :show-text="false" />
+          </div>
+        </div>
+        <p v-else class="empty-tip">TA 还没有宠物</p>
+      </el-card>
 
       <!-- 发布的动态 -->
       <el-card shadow="never">
@@ -225,16 +309,17 @@ onUnmounted(() => {
           />
         </div>
         <div v-if="spaces.length" class="space-list">
-          <div v-for="item in spaces" :key="item.id" class="space-item">
+          <div v-for="item in spaces" :key="item.id" class="space-item" @click="openDetail(item)">
             <div class="space-title-row">
               <span class="space-title">{{ item.title || '无标题动态' }}</span>
-              <el-tag v-if="item.category" size="small" round>{{ item.category }}</el-tag>
+              <el-tag v-for="t in splitTopics(item.category)" :key="t" size="small" round>{{ t }}</el-tag>
             </div>
             <div class="space-content">{{ item.content }}</div>
             <div v-if="item.mediaList && item.mediaList.length" class="space-media">
               <template v-for="(media, idx) in item.mediaList.slice(0, 3)" :key="idx">
                 <img v-if="media.mediaType === 0" :src="media.url" alt="" />
-                <video v-else :src="media.url" preload="metadata" />
+                <!-- 视频保留原生控件，点击不冒泡到卡片，避免误跳详情页 -->
+                <video v-else :src="media.url" preload="metadata" @click.stop />
               </template>
               <span v-if="item.mediaList.length > 3" class="space-media-more">
                 +{{ item.mediaList.length - 3 }}
@@ -262,21 +347,9 @@ onUnmounted(() => {
 }
 .up-container {
   max-width: none;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  align-items: start;
-}
-.up-left {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  min-width: 0;
-}
-@media (max-width: 860px) {
-  .up-container {
-    grid-template-columns: 1fr;
-  }
 }
 .card-title {
   font-weight: 700;
@@ -306,6 +379,17 @@ onUnmounted(() => {
 .avatar-ring :deep(.el-avatar) {
   border: 3px solid #fff;
   font-size: 26px;
+}
+.up-info {
+  flex: 1;
+  min-width: 0;
+}
+/* 操作区贴右：加好友 / 聊一聊 */
+.up-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 .up-name {
   font-size: 22px;
@@ -414,6 +498,11 @@ onUnmounted(() => {
   border-radius: 12px;
   padding: 14px 16px;
   background: #fff;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+.space-item:hover {
+  box-shadow: var(--pv-shadow);
 }
 .space-title-row {
   display: flex;
@@ -499,6 +588,13 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+  .up-head {
+    flex-wrap: wrap;
+  }
+  .up-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
   .space-search .el-input {
     flex: 1;
     width: auto;

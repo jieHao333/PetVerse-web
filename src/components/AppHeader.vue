@@ -35,13 +35,13 @@ const user = computed(() => JSON.parse(localStorage.getItem('user') || 'null'))
 const role = computed(() => user.value?.role || 'USER')
 
 // ===== 移动端导航：≤768px 时横向菜单收进汉堡按钮 + 抽屉 =====
+// 个人信息不进主导航，入口只在右上角头像下拉框里
 const NAV_ITEMS = [
   { path: '/', label: '首页' },
   { path: '/space', label: '圈子' },
   { path: '/friends', label: '好友' },
   { path: '/pet-chat', label: 'AI养宠' },
   { path: '/shop', label: '宠物商城' },
-  { path: '/profile', label: '个人资料' },
 ]
 
 const mobileQuery = window.matchMedia('(max-width: 768px)')
@@ -60,15 +60,15 @@ const goNav = (path) => {
   if (route.path !== path) router.push(path)
 }
 
+// 我的动态：新标签页打开，避免打断当前浏览的页面
+const openMySpaces = () => {
+  window.open(router.resolve({ name: 'mySpaces' }).href, '_blank')
+}
+
 const onLogout = () => {
   localStorage.removeItem('token')
   localStorage.removeItem('user')
   router.push({ name: 'login' })
-}
-
-// 新标签页打开「我的动态」独立页面（仅展示本人动态，不含账号/宠物信息）
-const openMySpaces = () => {
-  window.open(router.resolve('/my-spaces').href, '_blank')
 }
 
 // ===== 消息通知铃铛：未读红点轮询 + 最近通知弹层 =====
@@ -300,7 +300,7 @@ onUnmounted(stopPolling)
           </span>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item @click="router.push('/profile')">个人资料</el-dropdown-item>
+              <el-dropdown-item @click="router.push('/profile')">个人信息</el-dropdown-item>
               <el-dropdown-item @click="openMySpaces">我的动态</el-dropdown-item>
               <el-dropdown-item @click="router.push('/shop/cart')">购物车</el-dropdown-item>
               <el-dropdown-item @click="router.push('/shop/orders')">我的订单</el-dropdown-item>

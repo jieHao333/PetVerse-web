@@ -15,7 +15,11 @@ const router = createRouter({
         // 圈子与商城为游客开放只读浏览（public），写操作由页面内 requireLogin 拦截
         { path: 'space', name: 'space', component: () => import('@/views/Space.vue'), meta: { public: true } },
         { path: 'space/:id', name: 'spaceDetail', component: () => import('@/views/SpaceDetail.vue'), meta: { public: true } },
+        // 话题页：复用圈子组件，按话题(原分类)分页展示同一话题下的全部动态，从圈子话题标签新标签页打开
+        { path: 'space/topic/:category', name: 'spaceTopic', component: () => import('@/views/Space.vue'), meta: { public: true } },
         { path: 'friends', name: 'friends', component: () => import('@/views/Friends.vue') },
+        // 一对一聊天页：从用户主页或消息列表新标签页打开，非好友也能先发一条招呼
+        { path: 'chat/:userId', name: 'chat', component: () => import('@/views/Chat.vue') },
         { path: 'pet-chat', name: 'petChat', component: () => import('@/views/PetChat.vue') },
         { path: 'shop', name: 'shop', component: () => import('@/views/Shop.vue'), meta: { public: true } },
         { path: 'shop/product/:id', name: 'productDetail', component: () => import('@/views/ProductDetail.vue'), meta: { public: true } },

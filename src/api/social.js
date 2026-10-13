@@ -15,6 +15,9 @@ export const rejectFriendRequest = (id) => request.put(`/social/friend/request/$
 /** 查询我的好友列表 */
 export const getFriends = () => request.get('/social/friend/list')
 
+/** 查询我与指定用户的好友关系：{ friend, requestSent, receivedRequestId } */
+export const getFriendRelation = (userId) => request.get(`/social/friend/relation/${userId}`)
+
 /** 删除好友 */
 export const removeFriend = (friendUserId) => request.delete(`/social/friend/${friendUserId}`)
 
@@ -31,14 +34,14 @@ export const uploadChatFile = (file) => {
   })
 }
 
-/** 查询与某好友的最近聊天记录 */
+/** 查询与某用户的最近聊天记录（非好友的打招呼会话同样可读） */
 export const getMessages = (friendUserId) => request.get('/social/chat/messages', { params: { friendUserId } })
 
-/** 查询我的消息（会话）列表 */
+/** 查询我的消息（会话）列表：含非好友之间的打招呼会话，项上带 friend 标识 */
 export const getConversations = () => request.get('/social/chat/conversations')
 
-/** 标记与某好友的会话为已读（进入聊天时清零未读角标） */
+/** 标记与某用户的会话为已读（进入聊天时清零未读角标） */
 export const markChatRead = (friendUserId) => request.post('/social/chat/read', null, { params: { friendUserId } })
 
-/** 删除（清空）与某好友的会话 */
+/** 删除（清空）与某用户的会话 */
 export const deleteConversation = (friendUserId) => request.delete('/social/chat/conversation', { params: { friendUserId } })
