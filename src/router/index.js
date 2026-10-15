@@ -11,8 +11,8 @@ const router = createRouter({
       component: () => import('@/layouts/MainLayout.vue'),
       meta: { requiresAuth: true },
       children: [
-        { path: '', name: 'home', component: () => import('@/views/Home.vue') },
-        // 圈子与商城为游客开放只读浏览（public），写操作由页面内 requireLogin 拦截
+        // 首页、圈子与商城为游客开放只读浏览（public），写操作由页面内 requireLogin 拦截
+        { path: '', name: 'home', component: () => import('@/views/Home.vue'), meta: { public: true } },
         { path: 'space', name: 'space', component: () => import('@/views/Space.vue'), meta: { public: true } },
         { path: 'space/:id', name: 'spaceDetail', component: () => import('@/views/SpaceDetail.vue'), meta: { public: true } },
         // 话题页：复用圈子组件，按话题(原分类)分页展示同一话题下的全部动态，从圈子话题标签新标签页打开
@@ -90,14 +90,9 @@ const router = createRouter({
 })
 
 // 全局路由守卫（后端网关也会校验，此处仅优化体验）：
-// 直接打开项目地址（无站内来源页）时统一先落到圈子，站内点「首页」才进首页；
-// 游客可免登录浏览圈子与商城（meta.public），进入其他页面才提示登录并记录回跳地址；
+// 游客可免登录浏览首页、圈子与商城（meta.public），进入其他页面才提示登录并记录回跳地址；
 // 角色不足回首页。未登录跳登录页时带 redirect，登录成功后回到操作前那一页
 router.beforeEach(async (to, from) => {
-  // 初始导航 from 为空白路由（无 name），刷新 / 新标签页打开首页均视为首次进站
-  if (to.name === 'home' && !from.name) {
-    return { name: 'space' }
-  }
   if (getToken()) {
     if (to.name === 'login' || to.name === 'register') {
       return safeRedirect(to.query.redirect) || { name: 'home' }

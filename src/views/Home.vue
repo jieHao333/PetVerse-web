@@ -6,8 +6,13 @@ import PetDeleteDialog from '@/components/PetDeleteDialog.vue'
 import { getMe } from '@/api/user'
 import { listMyPets, renamePet, signIn } from '@/api/pet'
 import { getRecommendations, readRecommendCache, writeRecommendCache } from '@/api/ai'
+import { isLoggedIn, requireLogin } from '@/utils/auth'
 
 const router = useRouter()
+
+// 游客也允许打开首页，但宠物数据依赖登录身份：不请求需要鉴权的接口，
+// 点「添加宠物」时才弹登录引导
+const loggedIn = computed(() => isLoggedIn())
 
 // 用户名下全部宠物，分真实宠物（纯档案）与虚拟宠物（等级/经验/签到）两类
 const pets = ref([])
@@ -83,8 +88,9 @@ const petProgress = (p) => {
   return Math.min(100, Math.round((p.exp / p.nextLevelExp) * 100))
 }
 
-// 打开引导弹窗（登记新的真实宠物 / 领养虚拟宠物）
-const openOnboarding = () => {
+// 打开引导弹窗（登记新的真实宠物 / 领养虚拟宠物）；游客先引导登录
+const openOnboarding = async () => {
+  if (!(await requireLogin(router, '/'))) return
   onboardingVisible.value = true
 }
 
@@ -99,6 +105,11 @@ const goProfile = (pet) => {
 }
 
 onMounted(() => {
+  // 游客直接展示空态：宠物、签到与推荐接口都要登录身份，调了只会触发登录引导弹窗
+  if (!loggedIn.value) {
+    loading.value = false
+    return
+  }
   // 推荐请求与主内容并行发起（原先串行等主内容返回后才开始，白多等两轮往返）：
   // 本地缓存先渲染、后台再刷新，主内容加载完时推荐多半已就绪，卡片即可秒出
   loadRecommend()
@@ -187,8 +198,8 @@ const onSignIn = async () => {
     <div class="page-container">
       <!-- 欢迎 banner -->
       <div class="hero-banner">
-        <div class="hello">欢迎回来 👋</div>
-        <div class="sub">这里是你和宠物们的小窝</div>
+        <div class="hello">{{ loggedIn ? '欢迎回来 👋' : '欢迎来到 PetVerse 👋' }}</div>
+        <div class="sub">{{ loggedIn ? '这里是你和宠物们的小窝' : '登录后即可登记宠物、领养虚拟伙伴' }}</div>
       </div>
 
       <el-card v-if="loading" shadow="never" class="section">
@@ -289,11 +300,11 @@ const onSignIn = async () => {
           </div>
         </el-card>
 
-        <!-- 空状态：无任何宠物，单一「添加宠物」入口 -->
+        <!-- 空状态：无任何宠物，单一「添加宠物」入口（游客点击则引导登录） -->
         <el-card v-else shadow="never" class="section empty-card">
           <el-result
             icon="info"
-            title="你还没有宠物"
+            :title="loggedIn ? '你还没有宠物' : '登录后添加你的宠物'"
             sub-title="登记你的真实宠物，或从图鉴领养一只虚拟伙伴"
           >
             <template #extra>
