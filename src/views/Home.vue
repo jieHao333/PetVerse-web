@@ -14,7 +14,7 @@ const pets = ref([])
 const loading = ref(true)
 const signing = ref(false)
 
-// 引导弹窗：名下无任何宠物时弹出，让用户登记真实宠物或领养虚拟宠物
+// 引导弹窗：由「添加宠物」按钮打开，让用户登记真实宠物或领养虚拟宠物
 const onboardingVisible = ref(false)
 
 // 虚拟宠物参与签到与经验，真实宠物为纯档案
@@ -111,10 +111,6 @@ const loadMain = async () => {
     const me = await getMe()
     localStorage.setItem('user', JSON.stringify(me))
     await loadPets()
-    // 名下无任何宠物时弹出引导，用户可登记真实宠物或领养虚拟宠物
-    if (!pets.value.length) {
-      onboardingVisible.value = true
-    }
   } catch (e) {
     ElMessage.error(e.message)
   } finally {

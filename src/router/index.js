@@ -90,9 +90,14 @@ const router = createRouter({
 })
 
 // 全局路由守卫（后端网关也会校验，此处仅优化体验）：
+// 直接打开项目地址（无站内来源页）时统一先落到圈子，站内点「首页」才进首页；
 // 游客可免登录浏览圈子与商城（meta.public），进入其他页面才提示登录并记录回跳地址；
 // 角色不足回首页。未登录跳登录页时带 redirect，登录成功后回到操作前那一页
 router.beforeEach(async (to, from) => {
+  // 初始导航 from 为空白路由（无 name），刷新 / 新标签页打开首页均视为首次进站
+  if (to.name === 'home' && !from.name) {
+    return { name: 'space' }
+  }
   if (getToken()) {
     if (to.name === 'login' || to.name === 'register') {
       return safeRedirect(to.query.redirect) || { name: 'home' }
@@ -107,10 +112,6 @@ router.beforeEach(async (to, from) => {
   }
   if (!to.meta.requiresAuth || to.meta.public) {
     return true
-  }
-  // 首次进站落到可浏览的圈子，而不是直接踢去登录页；站内点「首页」仍按下面的拦截走
-  if (to.name === 'home' && !from.name) {
-    return { name: 'space' }
   }
   const redirect = to.fullPath
   // 新标签页首次导航没有来源页，取消导航只会留下一张空白页，因此直接带去登录页

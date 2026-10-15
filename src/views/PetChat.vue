@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { Collection, Delete, Paperclip, Plus } from '@element-plus/icons-vue'
+import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import { getMyPet, listMyPets } from '@/api/pet'
 import {
   chatStream,
@@ -13,8 +13,6 @@ import {
   uploadChatMedia,
 } from '@/api/ai'
 import { petAgeInfo, realPetMonths } from '@/utils/pet'
-
-const router = useRouter()
 
 // 当前时间戳（秒），本地新消息使用
 const nowSec = () => Math.floor(Date.now() / 1000)
@@ -249,20 +247,20 @@ const loadHistory = async (sessionId) => {
 }
 
 // ---------- 初始化 ----------
-onMounted(async () => {
+// 拉取名下宠物与历史会话：默认选中代表宠物（优先虚拟宠物）并打开最近活跃的会话。
+// 首次进入与引导弹窗登记成功后都复用这里，登记完即可直接开始咨询
+const initPetState = async () => {
   try {
-    // 宠物列表 + 代表宠物并行加载：默认选中代表宠物（优先虚拟宠物）
     const [myPet, myPets] = await Promise.all([
       getMyPet().catch(() => null),
       listMyPets().catch(() => []),
     ])
     pets.value = myPets || []
-    const target =
+    pet.value =
       (myPet && pets.value.find((p) => petKey(p) === petKey(myPet))) || myPet || pets.value[0] || null
-    pet.value = target
-    if (target) {
+    if (pet.value) {
       await refreshSessions()
-      // 进页面默认打开最近活跃的会话（可能属于任意宠物）：同步选中其归属宠物；无会话则展示空咨询页
+      // 默认打开最近活跃的会话（可能属于任意宠物）：同步选中其归属宠物；无会话则展示空咨询页
       if (sessions.value.length) {
         const owner = petById(sessions.value[0].petId)
         if (owner) pet.value = owner
@@ -275,7 +273,22 @@ onMounted(async () => {
   } finally {
     loadingPet.value = false
   }
-})
+}
+
+onMounted(initPetState)
+
+// ---------- 无宠物空态 ----------
+// 引导弹窗：先让用户选择登记已有真实宠物还是去图鉴领养虚拟宠物，与首页表现一致
+const onboardingVisible = ref(false)
+const openOnboarding = () => {
+  onboardingVisible.value = true
+}
+
+// 登记真实宠物成功后重新拉取宠物列表，页面随即进入可咨询状态
+const onRegistered = async () => {
+  loadingPet.value = true
+  await initPetState()
+}
 
 // 组件卸载时中断未完成的流式请求
 onUnmounted(() => {
@@ -598,15 +611,15 @@ const onEnterKey = (e) => {
         <el-skeleton :rows="6" animated />
       </el-card>
 
-      <!-- 无宠物：引导去领养 -->
+      <!-- 无宠物：引导登记已有宠物或去图鉴领养 -->
       <el-card v-else-if="!pet" shadow="never" class="chat-card empty-card">
         <el-result
           icon="info"
           title="还没有宠物"
-          sub-title="先去领养一只心仪的宠物，再回来咨询它的健康与习性吧"
+          sub-title="登记你已有的宠物，或从图鉴领养一只虚拟伙伴，再回来咨询它的健康与习性"
         >
           <template #extra>
-            <el-button type="primary" size="large" round @click="router.push('/claim')">
+            <el-button type="primary" size="large" round @click="openOnboarding">
               去领养宠物
             </el-button>
           </template>
@@ -884,6 +897,13 @@ const onEnterKey = (e) => {
         </div>
       </div>
     </el-dialog>
+
+    <!-- 无宠物时的引导弹窗：选择登记真实宠物或跳转图鉴领养虚拟宠物 -->
+    <PetOnboardingDialog
+      v-model="onboardingVisible"
+      :add-mode="pets.length > 0"
+      @registered="onRegistered"
+    />
   </div>
 </template>
 
