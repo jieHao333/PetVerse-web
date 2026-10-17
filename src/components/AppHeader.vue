@@ -41,8 +41,13 @@ const NAV_ITEMS = [
   { path: '/space', label: '圈子' },
   { path: '/friends', label: '好友' },
   { path: '/pet-chat', label: 'AI养宠' },
+  // 知识库是全用户共享的 AI 检索语料，入口只对管理员可见（路由与后端同样有校验）
+  { path: '/kb', label: '知识库', roles: ['ADMIN'] },
   { path: '/shop', label: '宠物商城' },
 ]
+
+/** 按当前角色过滤主导航：无 roles 的项所有人可见 */
+const navItems = computed(() => NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(role.value)))
 
 const mobileQuery = window.matchMedia('(max-width: 768px)')
 const isMobile = ref(mobileQuery.matches)
@@ -198,7 +203,7 @@ onUnmounted(stopPolling)
         router
         class="nav-menu"
       >
-        <el-menu-item v-for="item in NAV_ITEMS" :key="item.path" :index="item.path">
+        <el-menu-item v-for="item in navItems" :key="item.path" :index="item.path">
           {{ item.label }}
         </el-menu-item>
       </el-menu>
@@ -220,7 +225,7 @@ onUnmounted(stopPolling)
             <span class="drawer-title">PetVerse</span>
           </div>
           <div
-            v-for="item in NAV_ITEMS"
+            v-for="item in navItems"
             :key="item.path"
             class="drawer-item"
             :class="{ active: isActiveNav(item.path) }"

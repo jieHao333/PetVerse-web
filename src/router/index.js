@@ -21,6 +21,13 @@ const router = createRouter({
         // 一对一聊天页：从用户主页或消息列表新标签页打开，非好友也能先发一条招呼
         { path: 'chat/:userId', name: 'chat', component: () => import('@/views/Chat.vue') },
         { path: 'pet-chat', name: 'petChat', component: () => import('@/views/PetChat.vue') },
+        // 知识库管理页：AI 顾问检索用的养宠语料（md / pdf / docx / doc），仅管理员可进入
+        {
+          path: 'kb',
+          name: 'knowledgeBase',
+          component: () => import('@/views/KnowledgeBase.vue'),
+          meta: { requiresAuth: true, roles: ['ADMIN'] },
+        },
         { path: 'shop', name: 'shop', component: () => import('@/views/Shop.vue'), meta: { public: true } },
         { path: 'shop/product/:id', name: 'productDetail', component: () => import('@/views/ProductDetail.vue'), meta: { public: true } },
         { path: 'shop/product/:id/review', name: 'productReview', component: () => import('@/views/ProductReview.vue') },

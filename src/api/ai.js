@@ -35,7 +35,7 @@ import router from '@/router'
  * @param {Function} [options.onRetry] 连接阶段自动重连回调：(attempt) => void，attempt 从 1 开始
  * @returns {{ abort: () => void }} 中断控制器，供「停止生成」按钮调用
  */
-export function chatStream({ message, pet, sessionId, attachments, onMeta, onDelta, onDone, onError, onRetry }) {
+export function chatStream({ message, pet, sessionId, attachments, onMeta, onRefs, onDelta, onDone, onError, onRetry }) {
   const controller = new AbortController()
 
   // 连接阶段重试的退避间隔（ms）：总尝试次数 = 间隔数 + 1
@@ -154,6 +154,9 @@ export function chatStream({ message, pet, sessionId, attachments, onMeta, onDel
         gotEvent = true
         if (evt.type === 'meta') {
           onMeta?.({ sessionId: evt.sessionId })
+        } else if (evt.type === 'refs') {
+          // RAG 检索来源：在答案首字之前到达，同一轮可能收到多次（以最后一次为准）
+          onRefs?.(evt.items || [])
         } else if (evt.type === 'delta') {
           onDelta?.(evt.content || '')
         } else if (evt.type === 'done') {
@@ -277,6 +280,76 @@ export const getChatMemories = () => request.get('/ai/chat/memories')
  */
 export const deleteChatMemory = (key, scope, petId) =>
   request.delete(`/ai/chat/memories/${key}`, { params: { scope, petId } })
+
+/* ---------------- 知识库管理（RAG 语料文档，管理员限定） ----------------
+ * 鉴权由网关注入的 X-User-Role 承担（ADMIN 才能调用），浏览器侧无需额外凭证；
+ * 不经网关直连 ai-service 的运维脚本可改带 X-Kb-Admin 令牌，见 app/kb_api.py
+ */
+
+/**
+ * 知识库文档列表（服务端分页）
+ * @param {Object} [params] { page=1, size=20, keyword='' }
+ * data 为 { items: [{ docId, name, source, kind, category, species, tags, chunkCount,
+ *        charCount, origin, sha256, filePath, updatedAt }],
+ *        total, page, size, pages, totalDocuments, totalChunks, totalChars, supportedKinds }
+ */
+export const listKbDocuments = ({ page = 1, size = 20, keyword = '' } = {}) =>
+  request.get('/ai/kb/documents', { params: { page, size, keyword } })
+
+/**
+ * 文档在线预览：正文（重解析原文，原文缺失时后端回退为片段拼接）+ 入库片段清单
+ * data 为 { docId, name, source, kind, format: 'markdown'|'text', content,
+ *           contentFrom: 'file'|'chunks', hasFile, chunks: [{ chunkIndex, section, content, chars, tokenCount }] }
+ */
+export const getKbPreview = (docId) =>
+  request.get(`/ai/kb/documents/${encodeURIComponent(docId)}/preview`)
+
+/**
+ * 取文档原文的 blob URL（PDF 交给浏览器内置查看器渲染）
+ *
+ * 走原生 fetch 而不是 axios 封装：响应拦截器会按 Result 结构解包，二进制流没有
+ * code 字段会被判成失败；iframe 也不能自己带 Authorization 头，所以在这里取回
+ * 二进制再转 object URL。调用方用完必须 revokeObjectURL，否则内存不释放。
+ * @returns {Promise<{ url: string, mime: string }>}
+ */
+export async function fetchKbFileUrl(docId) {
+  const token = localStorage.getItem('token')
+  const response = await fetch(`/api/ai/kb/documents/${encodeURIComponent(docId)}/file`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) throw new Error(`原文读取失败（HTTP ${response.status}）`)
+  const blob = await response.blob()
+  return {
+    url: URL.createObjectURL(blob),
+    mime: response.headers.get('Content-Type') || blob.type || '',
+  }
+}
+
+/**
+ * 上传一篇知识文档（md / pdf / docx / doc），后端解析切分后立即入库
+ * @param {File} file 文档文件
+ * @param {Object} [meta] { title, category, species }，species 为逗号分隔字符串
+ */
+export const uploadKbDocument = (file, meta = {}) => {
+  const form = new FormData()
+  form.append('file', file)
+  if (meta.title) form.append('title', meta.title)
+  if (meta.category) form.append('category', meta.category)
+  if (meta.species) form.append('species', meta.species)
+  return request.post('/ai/kb/documents', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    // 上传后要走解析 + 批量 Embedding，耗时随文档长度线性增长
+    timeout: 300000,
+  })
+}
+
+/** 删除一篇文档及其全部知识片段（docId 可能含中文，需编码） */
+export const deleteKbDocument = (docId) =>
+  request.delete(`/ai/kb/documents/${encodeURIComponent(docId)}`)
+
+/** 用仓库语料目录全量重建知识库（耗时较长，超时放宽到 10 分钟） */
+export const reindexKb = () =>
+  request.post('/ai/kb/reindex', null, { timeout: 600000 })
 
 /* ---------------- 以下为新增 AI 能力（均为普通 JSON 接口，走 axios 封装） ---------------- */
 

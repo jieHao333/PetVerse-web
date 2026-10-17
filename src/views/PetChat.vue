@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { Collection, Delete, Paperclip, Plus } from '@element-plus/icons-vue'
+import { ArrowDown, Collection, Delete, Paperclip, Plus } from '@element-plus/icons-vue'
 import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import { getMyPet, listMyPets } from '@/api/pet'
 import {
@@ -25,6 +25,21 @@ const formatMsgTime = (ts) => {
   const mm = String(d.getMinutes()).padStart(2, '0')
   return `${hh}:${mm}`
 }
+
+// ---------- RAG 引用来源（回答气泡下方的「参考来源」折叠条） ----------
+// 默认折叠，只展开用户主动点开的那条消息，避免长对话里满屏都是来源列表
+const openedRefs = ref(new Set())
+const toggleRefs = (idx) => {
+  const next = new Set(openedRefs.value)
+  if (next.has(idx)) next.delete(idx)
+  else next.add(idx)
+  openedRefs.value = next
+}
+// 文档类型标签：md / pdf / doc(x) 用不同色，来源列表里一眼分辨出处格式
+const kbKindType = (kind) => ({ pdf: 'danger', doc: 'warning', docx: 'warning' }[kind] || 'success')
+const kbKindLabel = (kind) => (kind || 'md').toUpperCase()
+// 相关度展示：后端下发的是余弦相似度（0~1），转成百分比整数
+const kbScoreText = (score) => `${Math.round((Number(score) || 0) * 100)}%`
 
 // ---------- 多模态附件（图片 / 音频 / 视频） ----------
 // 与后端 app/media.py 的判定规则对齐：MIME 主类型优先，扩展名兜底
@@ -237,6 +252,8 @@ const loadHistory = async (sessionId) => {
       stopped: !!m.interrupted,
       // 多模态附件（仅用户消息，OSS 公网 URL 直接回放）
       attachments: (m.attachments || []).filter((a) => a && a.type && a.url).map((a) => ({ ...a })),
+      // RAG 引用来源（仅助手消息）：历史回放同样显示「参考来源」
+      refs: (m.refs || []).filter((r) => r && r.source),
     }))
     scrollToBottom()
   } catch (e) {
@@ -495,7 +512,7 @@ const sendText = (text, attachments = []) => {
     attachments: attachments.filter((a) => a && a.type && a.url),
   })
   // 顾问侧先出现「思考中」占位气泡，首个 delta 到达后替换为流式文本
-  messages.value.push({ role: 'assistant', content: '', thinking: true, ts: nowSec() })
+  messages.value.push({ role: 'assistant', content: '', thinking: true, refs: [], ts: nowSec() })
   sending.value = true
   scrollToBottom()
 
@@ -536,6 +553,11 @@ const sendText = (text, attachments = []) => {
       if (sessionId == null) return
       currentSessionId.value = Number(sessionId)
       refreshSessions()
+    },
+    onRefs: (items) => {
+      // RAG 检索来源（在答案首字之前到达）：挂到当前助手气泡上，渲染「参考来源」
+      const last = messages.value[messages.value.length - 1]
+      if (last?.role === 'assistant') last.refs = items || []
     },
     onDelta: (content) => {
       const last = messages.value[messages.value.length - 1]
@@ -785,6 +807,37 @@ const onEnterKey = (e) => {
                         <span v-if="msg.stopped" class="stop-mark">（已停止）</span>
                         <span v-if="msg.error" class="err-mark">{{ msg.error }}</span>
                       </template>
+                    </div>
+                    <!-- RAG 引用来源：这条回答依据的知识库文档（文档名 / 类型 / 小节 / 相关度） -->
+                    <div
+                      v-if="msg.role === 'assistant' && !msg.thinking && msg.refs?.length"
+                      class="refs"
+                    >
+                      <button type="button" class="refs-toggle" @click="toggleRefs(idx)">
+                        <el-icon><Collection /></el-icon>
+                        <span>参考来源 {{ msg.refs.length }} 篇</span>
+                        <el-icon class="refs-arrow" :class="{ open: openedRefs.has(idx) }">
+                          <ArrowDown />
+                        </el-icon>
+                      </button>
+                      <div v-show="openedRefs.has(idx)" class="refs-list">
+                        <div v-for="r in msg.refs" :key="r.rank" class="ref-item">
+                          <span class="ref-rank">[{{ r.rank }}]</span>
+                          <div class="ref-main">
+                            <div class="ref-head">
+                              <el-tag size="small" effect="plain" :type="kbKindType(r.kind)">
+                                {{ kbKindLabel(r.kind) }}
+                              </el-tag>
+                              <span class="ref-title">{{ r.docTitle }}</span>
+                              <span class="ref-score">相关度 {{ kbScoreText(r.score) }}</span>
+                            </div>
+                            <div v-if="r.section || r.category" class="ref-section">
+                              {{ [r.category, r.section].filter(Boolean).join(' · ') }}
+                            </div>
+                            <div v-if="r.snippet" class="ref-snippet">{{ r.snippet }}</div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                     <!-- 失败气泡：一键重新生成本轮回复 -->
                     <el-button
@@ -1253,6 +1306,85 @@ const onEnterKey = (e) => {
   margin-top: 6px;
   margin-left: 0;
   font-size: 12px;
+}
+
+/* RAG 引用来源：回答下方的折叠条（文档名 / 类型 / 小节 / 相关度 / 摘要） */
+.refs {
+  margin-top: 6px;
+}
+.refs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--pv-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pv-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.18s, border-color 0.18s;
+}
+.refs-toggle:hover {
+  color: var(--pv-ink);
+  border-color: var(--pv-ink);
+}
+.refs-arrow {
+  transition: transform 0.18s;
+}
+.refs-arrow.open {
+  transform: rotate(180deg);
+}
+.refs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--pv-border);
+  border-radius: 12px;
+  background: var(--pv-tint);
+}
+.ref-item {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+}
+.ref-rank {
+  color: var(--pv-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.ref-main {
+  flex: 1;
+  min-width: 0;
+}
+.ref-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ref-title {
+  color: var(--pv-ink);
+  font-weight: 600;
+}
+.ref-score {
+  margin-left: auto;
+  color: var(--pv-text-secondary);
+  font-size: 11px;
+}
+.ref-section {
+  margin-top: 3px;
+  color: var(--pv-text-secondary);
+}
+.ref-snippet {
+  margin-top: 4px;
+  line-height: 1.55;
+  color: var(--pv-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* 思考中三个跳动圆点 */
