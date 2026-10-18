@@ -389,6 +389,15 @@ const openMyReviews = async () => {
   .product-body {
     padding: 10px 12px 12px;
   }
+  /* 两列卡片较窄：商品名最多两行，避免只剩几个字 */
+  .product-name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    line-height: 1.45;
+    min-height: 2.9em;
+  }
   .price {
     font-size: 15px;
   }

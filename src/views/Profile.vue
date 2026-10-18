@@ -251,10 +251,12 @@ const onSavePassword = async () => {
   font-size: 22px;
   font-weight: 700;
   color: var(--pv-text);
+  overflow-wrap: anywhere;
 }
 .up-account {
   color: var(--pv-text-secondary);
   margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 .up-meta {
   font-size: 12px;
@@ -264,5 +266,22 @@ const onSavePassword = async () => {
 /* 单行表单：输入框不随卡片拉满整行 */
 .setting-form :deep(.el-input) {
   max-width: 380px;
+}
+@media (max-width: 768px) {
+  /* 昵称/账号较长时换到头像下方，避免撑破卡片 */
+  .up-head {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .up-head > div:last-child {
+    min-width: 0;
+  }
+}
+/* 触屏无 hover：头像更换蒙层常显，提示可点击 */
+@media (hover: none) {
+  .avatar-mask {
+    opacity: 1;
+    background: rgba(23, 24, 28, 0.35);
+  }
 }
 </style>

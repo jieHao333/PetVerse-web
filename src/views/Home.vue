@@ -259,6 +259,7 @@ const onSignIn = async () => {
                   <el-button size="small" round type="primary" plain @click="goProfile(p)">
                     {{ p.cardIssueDate ? '修改宠物信息' : '完善宠物信息' }}
                   </el-button>
+                  <el-button size="small" round class="ghost-btn" @click="openIdentity(p)">身份卡</el-button>
                   <el-button size="small" round class="ghost-btn" @click="openRename(p)">改名</el-button>
                   <el-button size="small" round class="ghost-btn danger-btn" @click="openDelete(p)">删除</el-button>
                 </div>
@@ -292,6 +293,7 @@ const onSignIn = async () => {
                   </div>
                 </div>
                 <div class="row-actions">
+                  <el-button size="small" round class="ghost-btn" @click="openIdentity(p)">身份卡</el-button>
                   <el-button size="small" round class="ghost-btn" @click="openRename(p)">改名</el-button>
                   <el-button size="small" round class="ghost-btn danger-btn" @click="openDelete(p)">删除</el-button>
                 </div>
@@ -533,6 +535,7 @@ const onSignIn = async () => {
   font-size: 17px;
   font-weight: 700;
   color: var(--pv-text);
+  overflow-wrap: anywhere;
 }
 .row-breed {
   font-size: 13px;

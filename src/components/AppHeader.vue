@@ -361,12 +361,17 @@ onUnmounted(stopPolling)
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+/* 返回按钮保持完整；空间不足时由标题收缩省略，避免整条顶栏把页面撑出横向滚动 */
+.left > .el-button {
   flex-shrink: 0;
 }
 .logo {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 .logo-mark {
   width: 30px;
@@ -374,12 +379,16 @@ onUnmounted(stopPolling)
   border-radius: 9px;
   object-fit: cover;
   display: block;
+  flex-shrink: 0;
 }
 .logo-text {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.3px;
   color: var(--pv-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .nav-menu {
   flex: 1;
@@ -540,6 +549,25 @@ onUnmounted(stopPolling)
   }
   .right {
     gap: 12px;
+  }
+}
+@media (max-width: 360px) {
+  /* 超窄屏进一步压缩间距，保证返回 + 页面标题 + 头像一行放下 */
+  .header-inner {
+    padding: 0 12px;
+    gap: 10px;
+  }
+  .left {
+    gap: 8px;
+  }
+  .logo {
+    gap: 8px;
+  }
+  .logo-text {
+    font-size: 16px;
+  }
+  .right {
+    gap: 8px;
   }
 }
 </style>

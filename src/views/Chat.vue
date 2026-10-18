@@ -391,7 +391,9 @@ onUnmounted(() => {
   <div class="page chat-page">
     <div v-loading="loading" class="chat-shell pv-panel">
       <header class="chat-head">
-        <el-button text class="chat-back" :icon="ArrowLeft" @click="goBack">消息列表</el-button>
+        <el-button text class="chat-back" :icon="ArrowLeft" aria-label="返回消息列表" @click="goBack">
+          消息列表
+        </el-button>
         <el-avatar
           shape="square"
           :size="42"
@@ -574,6 +576,8 @@ onUnmounted(() => {
 <style scoped>
 .chat-page {
   height: calc(100vh - 60px);
+  /* dvh 随移动端地址栏收放动态计算，避免输入区被浏览器工具栏遮挡 */
+  height: calc(100dvh - 60px);
   padding: 20px 40px;
   display: flex;
 }
@@ -612,10 +616,16 @@ onUnmounted(() => {
   font-weight: 700;
   font-size: 16px;
   color: var(--pv-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chat-head-account {
   font-size: 12px;
   color: var(--pv-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chat-head-actions {
   display: flex;
@@ -937,8 +947,36 @@ onUnmounted(() => {
     flex-wrap: wrap;
     padding: 12px 14px;
   }
+  /* 给昵称/账号预留最小宽度；空间不足时好友操作整体换到下一行并右对齐 */
+  .chat-head-info {
+    flex: 1 1 140px;
+  }
+  .chat-head-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
+  }
   .chat-input {
     flex-wrap: wrap;
+  }
+  /* 窄屏放宽气泡占比，并让图片/视频跟随气泡收缩，避免媒体消息横向溢出 */
+  .bubble {
+    max-width: 78%;
+  }
+  .bubble-img,
+  .bubble-video {
+    max-width: 100%;
+    height: auto;
+  }
+}
+@media (max-width: 480px) {
+  /* 手机窄屏用图标返回，给昵称与好友状态留出空间 */
+  .chat-back :deep(span) {
+    display: none;
+  }
+  .chat-back {
+    padding-left: 6px;
+    padding-right: 6px;
   }
 }
 </style>

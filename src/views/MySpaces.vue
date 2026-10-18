@@ -268,22 +268,36 @@ onUnmounted(() => {
   font-weight: 600;
   font-size: 15px;
   color: var(--pv-text);
+  overflow-wrap: anywhere;
 }
 .feed-sub {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   margin-top: 4px;
 }
 .feed-time {
   font-size: 12px;
   color: var(--pv-text-secondary);
+  white-space: nowrap;
 }
 .feed-title {
   margin-top: 12px;
   font-size: 16px;
   font-weight: 600;
   color: var(--pv-text);
+  overflow-wrap: anywhere;
+}
+/* 话题标签由用户输入，超长时在标签内部换行而非撑破卡片 */
+.feed-sub :deep(.el-tag) {
+  max-width: 100%;
+  height: auto;
+  line-height: 1.5;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .feed-content {
   margin-top: 8px;

@@ -6,6 +6,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import { listMyPets, uploadPetAvatar, updatePetHealth } from '@/api/pet'
 import { assessPetHealth } from '@/api/ai'
 import { petAgeInfo, realPetMonths } from '@/utils/pet'
+import { useIsMobile } from '@/utils/responsive'
 import logo from '@/assets/logo.jpg'
 
 const route = useRoute()
@@ -13,6 +14,9 @@ const router = useRouter()
 
 const loading = ref(true)
 const pets = ref([])
+// 身份卡头像在手机上缩小，给右侧字段留出空间，避免卡片被拉成一张竖版表单
+const isMobile = useIsMobile()
+const idAvatarSize = computed(() => (isMobile.value ? 96 : 150))
 
 // 当前查看的宠物：优先路由指定 ID，其次第一只已签发身份卡的宠物，兜底第一只
 // 宠物 ID 为雪花 ID（后端序列化为字符串），比较统一走 String，禁止 Number 转换以防精度丢失
@@ -259,7 +263,7 @@ onMounted(async () => {
           <div class="id-card-body">
             <!-- 点击头像放大并可切换 -->
             <div class="id-avatar-wrap" title="点击放大 / 更换头像" @click="openAvatar">
-              <el-avatar :size="150" :src="current.imageUrl || ''" class="id-avatar">
+              <el-avatar :size="idAvatarSize" :src="current.imageUrl || ''" class="id-avatar">
                 {{ (current.name || '宠')[0] }}
               </el-avatar>
               <div class="avatar-zoom">放大 / 更换</div>
@@ -370,6 +374,7 @@ onMounted(async () => {
                 <el-tag
                   v-for="(rm, i) in healthReport.reminders"
                   :key="i"
+                  class="reminder-tag"
                   :type="rm.urgency === 'high' ? 'danger' : rm.urgency === 'medium' ? 'warning' : 'info'"
                   effect="light"
                   size="small"
@@ -500,9 +505,10 @@ onMounted(async () => {
 }
 .id-card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
 }
 .id-card-title {
   display: flex;
@@ -588,6 +594,8 @@ onMounted(async () => {
   font-size: 15px;
   font-weight: 600;
   color: var(--pv-ink);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .id-name {
   font-size: 24px;
@@ -621,12 +629,15 @@ onMounted(async () => {
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
 }
 .id-date-no {
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 2px;
   color: var(--pv-ink);
+  white-space: nowrap;
 }
 .id-date-no.date-empty {
   font-size: 15px;
@@ -815,6 +826,7 @@ onMounted(async () => {
   font-size: 13px;
   line-height: 1.6;
   color: var(--pv-text);
+  overflow-wrap: anywhere;
 }
 .report-block {
   margin-top: 14px;
@@ -835,10 +847,23 @@ onMounted(async () => {
   line-height: 1.7;
   color: var(--pv-text);
 }
+.report-list li {
+  overflow-wrap: anywhere;
+}
 .reminder-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+/* 提醒文案由 AI 生成、长度不可控：覆盖 el-tag 默认 nowrap 与固定高度，超长时在标签内换行 */
+.reminder-tags :deep(.el-tag.reminder-tag) {
+  max-width: 100%;
+  height: auto;
+  padding: 4px 10px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .report-disclaimer {
   margin: 14px 0 0;
@@ -849,16 +874,46 @@ onMounted(async () => {
 }
 
 @media (max-width: 768px) {
+  /* 多宠物切换改为横向滑动，避免筛选条占掉多行高度 */
+  .pet-switcher {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .pet-switcher::-webkit-scrollbar {
+    display: none;
+  }
+  .switcher-chip {
+    flex-shrink: 0;
+  }
   .id-card {
     padding: 20px 16px 18px;
   }
   .id-card-body {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
     gap: 18px;
   }
+  .id-avatar {
+    border-width: 4px;
+    font-size: 34px;
+  }
   .id-fields {
-    gap: 12px 16px;
+    width: 100%;
+    gap: 10px 14px;
+  }
+  .id-label {
+    font-size: 11px;
+    letter-spacing: 0.3px;
+  }
+  .id-value {
+    margin-top: 4px;
+    font-size: 13px;
+  }
+  .id-name {
+    font-size: 21px;
   }
   .id-card-footer {
     flex-direction: column;
@@ -868,11 +923,62 @@ onMounted(async () => {
   .id-date {
     align-items: flex-start;
   }
+  .id-date-no {
+    font-size: 22px;
+  }
   .health-grid {
     grid-template-columns: 1fr;
   }
   .health-tile-full {
     grid-column: auto;
+  }
+  .ai-health-head {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 360px) {
+  .id-card {
+    padding: 18px 14px 16px;
+  }
+  .unverified-tag {
+    font-size: 10px;
+    letter-spacing: 0.5px;
+  }
+}
+
+/* 常见手机宽度：头像居左、字段居右的证件式布局，缩短卡片纵向长度 */
+@media (min-width: 361px) and (max-width: 768px) {
+  .id-card-body {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .id-avatar-wrap {
+    align-self: flex-start;
+  }
+  .id-fields {
+    width: auto;
+    flex: 1;
+    min-width: 0;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 14px;
+  }
+  .id-name {
+    font-size: 21px;
+  }
+  .id-card-footer {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px 16px;
+  }
+  .id-date {
+    align-items: flex-start;
+  }
+  .id-date-no {
+    font-size: 19px;
+    letter-spacing: 1px;
   }
 }
 </style>

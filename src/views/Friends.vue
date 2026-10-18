@@ -473,6 +473,7 @@ onUnmounted(() => {
 .user-name {
   font-weight: 600;
   color: var(--pv-text);
+  overflow-wrap: anywhere;
 }
 .name-link {
   cursor: pointer;
@@ -486,6 +487,7 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--pv-text-secondary);
   margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 .item-actions {
   display: flex;
@@ -560,6 +562,15 @@ onUnmounted(() => {
   /* 触屏无 hover：会话删除按钮常显 */
   .conv-del {
     opacity: 1;
+  }
+  /* 操作按钮另起一行右对齐，给昵称/账号留出完整宽度 */
+  .user-item {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .item-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 </style>

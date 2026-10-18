@@ -724,6 +724,7 @@ onMounted(() => {
   font-weight: 700;
   color: var(--pv-text);
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 .info-tags {
   margin-top: 10px;
@@ -759,16 +760,19 @@ onMounted(() => {
   margin-top: 16px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 6px 12px;
 }
 .shop-label {
   font-size: 13px;
   color: var(--pv-text-secondary);
 }
 .shop-name {
+  min-width: 0;
   font-weight: 600;
   color: var(--pv-text);
   cursor: pointer;
+  overflow-wrap: anywhere;
 }
 .shop-name:hover {
   color: var(--pv-ink);
@@ -931,6 +935,10 @@ onMounted(() => {
   }
   .info-name {
     font-size: 18px;
+  }
+  /* 店名占据剩余宽度，「进入店铺」保持同行；店名过长时自动换行/收进店铺按钮下一行 */
+  .shop-name {
+    flex: 1;
   }
   .price {
     font-size: 26px;

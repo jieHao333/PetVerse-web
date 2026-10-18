@@ -395,10 +395,12 @@ onUnmounted(() => {
   font-size: 22px;
   font-weight: 700;
   color: var(--pv-text);
+  overflow-wrap: anywhere;
 }
 .up-account {
   color: var(--pv-text-secondary);
   margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 .up-meta {
   font-size: 12px;

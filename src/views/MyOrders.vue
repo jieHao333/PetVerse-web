@@ -345,12 +345,14 @@ const openMyReviews = () => {
 .order-shop {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   padding: 10px 16px;
   border-top: 1px solid var(--pv-border);
   font-size: 13px;
 }
 .shop-link {
+  min-width: 0;
   font-weight: 600;
   color: var(--pv-text);
   cursor: pointer;
@@ -497,6 +499,13 @@ const openMyReviews = () => {
   .order-head {
     flex-wrap: wrap;
     row-gap: 4px;
+  }
+  /* 长店名省略显示，避免把「到店自取」标签挤出卡片 */
+  .shop-link {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .order-no {
     max-width: 100%;

@@ -989,7 +989,9 @@ onMounted(() => {
 }
 .review-media-video {
   width: 200px;
+  max-width: 100%;
   max-height: 200px;
+  height: auto;
   border-radius: 8px;
   background: #000;
   display: block;

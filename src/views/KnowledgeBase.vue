@@ -569,6 +569,7 @@ onMounted(loadDocuments)
 .pv-scroll {
   max-height: 68vh;
   overflow-y: auto;
+  overflow-x: auto;
   padding-right: 8px;
 }
 .pv-text {
@@ -679,6 +680,23 @@ onMounted(loadDocuments)
   border-radius: 4px;
   background: var(--pv-tint);
   font-size: 12px;
+}
+/* 代码块 / 图片 / 宽表格不撑破窄屏弹窗，超宽内容在预览区内横向滚动 */
+.pv-md :deep(pre) {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--pv-tint);
+  overflow-x: auto;
+}
+.pv-md :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  white-space: pre;
+}
+.pv-md :deep(img) {
+  max-width: 100%;
+  height: auto;
 }
 .pv-md :deep(hr) {
   margin: 16px 0;

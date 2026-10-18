@@ -545,6 +545,7 @@ onMounted(loadAll)
   font-size: 15px;
   color: var(--pv-text);
   cursor: pointer;
+  overflow-wrap: anywhere;
 }
 .feed-author:hover {
   text-decoration: underline;
@@ -552,12 +553,24 @@ onMounted(loadAll)
 .feed-sub {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   margin-top: 4px;
 }
 .feed-time {
   font-size: 12px;
   color: var(--pv-text-secondary);
+  white-space: nowrap;
+}
+/* 话题标签由用户输入，超长时在标签内部换行而非撑破卡片 */
+.feed-sub :deep(.el-tag) {
+  max-width: 100%;
+  height: auto;
+  line-height: 1.5;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .feed-actions {
   flex-shrink: 0;
@@ -569,6 +582,7 @@ onMounted(loadAll)
   font-weight: 700;
   color: var(--pv-text);
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 .detail-content {
   margin-top: 10px;

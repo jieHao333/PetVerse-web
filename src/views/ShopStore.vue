@@ -271,12 +271,15 @@ const addToCart = async (productId, quantity) => {
 .store-name-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
 }
 .store-name {
+  min-width: 0;
   font-size: 20px;
   font-weight: 700;
   color: var(--pv-text);
+  overflow-wrap: anywhere;
 }
 .store-desc {
   margin-top: 6px;
@@ -291,7 +294,8 @@ const addToCart = async (productId, quantity) => {
 .store-meta {
   margin-top: 8px;
   display: flex;
-  gap: 18px;
+  flex-wrap: wrap;
+  gap: 4px 18px;
   font-size: 12px;
   color: var(--pv-text-secondary);
 }
@@ -466,6 +470,15 @@ const addToCart = async (productId, quantity) => {
   }
   .product-body {
     padding: 10px 12px 12px;
+  }
+  /* 两列卡片较窄：商品名最多两行，避免只剩几个字 */
+  .product-name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    line-height: 1.45;
+    min-height: 2.9em;
   }
 }
 </style>

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { ArrowDown, Collection, Delete, Paperclip, Plus } from '@element-plus/icons-vue'
+import { ArrowDown, Collection, Delete, Menu, Paperclip, Plus } from '@element-plus/icons-vue'
 import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import { getMyPet, listMyPets } from '@/api/pet'
 import {
@@ -399,6 +399,41 @@ const onDeleteSession = async (s) => {
   }
 }
 
+// ---------- 移动端会话/宠物选择面板 ----------
+// 手机布局直接展示对话，咨询对象与会话记录收进右上角弹层；
+// 选择后统一收起面板，避免遮挡聊天内容
+const mobilePanelVisible = ref(false)
+const onMobileSwitchPet = async (p) => {
+  await switchPet(p)
+  mobilePanelVisible.value = false
+}
+const onMobileSelectSession = async (s) => {
+  await selectSession(s)
+  mobilePanelVisible.value = false
+}
+const onMobileNewSession = () => {
+  newSession()
+  mobilePanelVisible.value = false
+}
+const onMobileMemories = () => {
+  mobilePanelVisible.value = false
+  openMemories()
+}
+// 弹层与确认框叠层：先确认再删除，删除后收起面板
+const onMobileDeleteSession = async (s) => {
+  try {
+    await ElMessageBox.confirm('删除该会话及全部记录？', '删除会话', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  mobilePanelVisible.value = false
+  await onDeleteSession(s)
+}
+
 // ---------- 长期记忆管理 ----------
 const memoryVisible = ref(false) // 记忆管理弹窗可见
 const loadingMemories = ref(false) // 记忆列表加载中
@@ -731,6 +766,96 @@ const onEnterKey = (e) => {
                 </div>
                 <p class="pet-sub">AI 养宠顾问 · 咨询 {{ pet.name }} 的健康与习性</p>
               </div>
+
+              <!-- 手机端：咨询对象 + 会话记录收进右上角弹层，页面主体直接展示对话 -->
+              <el-popover
+                v-model:visible="mobilePanelVisible"
+                placement="bottom-end"
+                trigger="click"
+                :width="300"
+                :offset="8"
+                popper-class="petchat-mobile-popover"
+              >
+                <template #reference>
+                  <el-button
+                    class="mobile-panel-btn"
+                    round
+                    :icon="Menu"
+                    aria-label="打开咨询对象与会话记录"
+                  >
+                    会话
+                  </el-button>
+                </template>
+
+                <div class="mobile-panel">
+                  <div class="mp-section">
+                    <div class="mp-title">咨询对象</div>
+                    <div class="mp-pets">
+                      <button
+                        v-for="p in pets"
+                        :key="p.id"
+                        type="button"
+                        class="mp-pet"
+                        :class="{ active: isPetActive(p) }"
+                        @click="onMobileSwitchPet(p)"
+                      >
+                        <el-avatar :size="32" :src="p.imageUrl || ''" class="pet-item-avatar">
+                          {{ (p.name || '宠')[0] }}
+                        </el-avatar>
+                        <span class="mp-pet-info">
+                          <span class="mp-pet-name">{{ p.name }}</span>
+                          <span class="mp-pet-sub">{{ petLine(p) }}</span>
+                        </span>
+                        <span v-if="isPetActive(p)" class="mp-pet-current">当前</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="mp-section">
+                    <div class="mp-title-row">
+                      <span class="mp-title">会话记录</span>
+                      <div class="mp-actions">
+                        <el-button
+                          size="small"
+                          round
+                          :icon="Collection"
+                          aria-label="长期记忆"
+                          @click="onMobileMemories"
+                        >
+                          记忆
+                        </el-button>
+                        <el-button size="small" round :icon="Plus" @click="onMobileNewSession">
+                          新会话
+                        </el-button>
+                      </div>
+                    </div>
+                    <div class="mp-sessions">
+                      <div v-if="loadingSessions" class="session-empty">加载中...</div>
+                      <div v-else-if="!sessions.length" class="session-empty">暂无历史会话</div>
+                      <button
+                        v-for="s in sessions"
+                        :key="s.id"
+                        type="button"
+                        class="mp-session"
+                        :class="{ active: isSessionActive(s) }"
+                        @click="onMobileSelectSession(s)"
+                      >
+                        <span v-if="petById(s.petId)" class="session-pet">
+                          {{ petById(s.petId).name }}
+                        </span>
+                        <span class="session-title">{{ s.title || '新会话' }}</span>
+                        <el-icon
+                          class="session-del mp-session-del"
+                          aria-label="删除会话"
+                          @click.stop="onMobileDeleteSession(s)"
+                        >
+                          <Delete />
+                        </el-icon>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </el-popover>
             </div>
 
             <!-- 消息列表 -->
@@ -1173,12 +1298,18 @@ const onEnterKey = (e) => {
 .name-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
 }
 .pet-name {
+  min-width: 0;
   font-size: 18px;
   font-weight: 700;
   color: var(--pv-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .lv-tag {
   background: var(--pv-ink);
@@ -1190,6 +1321,123 @@ const onEnterKey = (e) => {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--pv-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 手机端右上角入口 + 选择面板 ---------- */
+.mobile-panel-btn {
+  display: none;
+  flex-shrink: 0;
+}
+.mobile-panel {
+  width: 100%;
+}
+.mp-section + .mp-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--pv-border);
+}
+.mp-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--pv-text-secondary);
+  margin-bottom: 8px;
+}
+.mp-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mp-title-row .mp-title {
+  margin-bottom: 0;
+}
+.mp-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mp-actions .el-button + .el-button {
+  margin-left: 0;
+}
+.mp-pets,
+.mp-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+.mp-pets {
+  max-height: 176px;
+}
+.mp-sessions {
+  max-height: 220px;
+}
+.mp-pet,
+.mp-session {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  color: var(--pv-text);
+  text-align: left;
+  cursor: pointer;
+}
+.mp-pet:hover,
+.mp-session:hover {
+  background: var(--pv-tint);
+}
+.mp-pet.active,
+.mp-session.active {
+  background: var(--pv-tint);
+  border-color: var(--pv-border);
+}
+.mp-pet-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mp-pet-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-pet-sub {
+  font-size: 11px;
+  color: var(--pv-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-pet-current {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--pv-text-secondary);
+  background: #fff;
+  border: 1px solid var(--pv-border);
+}
+.mp-session {
+  padding: 9px 10px;
+}
+.mp-session .mp-session-del {
+  opacity: 1;
+}
+.mp-session.active .session-title {
+  font-weight: 600;
 }
 
 /* ---------- 消息列表 ---------- */
@@ -1554,7 +1802,8 @@ const onEnterKey = (e) => {
   background: #000;
 }
 .media-audio {
-  min-width: 220px;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
 }
 .audio-name {
@@ -1641,53 +1890,67 @@ const onEnterKey = (e) => {
 
 /* ---------- 移动端 ---------- */
 @media (max-width: 768px) {
-  /* 侧栏改为顶部横向区块：宠物横滑一行，会话列表限高；恢复整页滚动 */
+  /* 手机端直接展示对话：侧栏收进右上角弹层，聊天区与输入框占满剩余视口高度 */
+  .page {
+    min-height: 0;
+  }
+  .page-container {
+    min-height: 0;
+    padding: 10px 12px;
+  }
   .chat-layout {
-    flex-direction: column;
-    height: auto;
+    height: calc(100vh - 86px);
+    height: calc(100dvh - 86px);
     min-height: 0;
   }
   .chat-sidebar {
+    display: none;
+  }
+  .chat-main {
     width: 100%;
-    overflow: visible;
-    border-right: none;
-    border-bottom: 1px solid var(--pv-border);
   }
-  .pet-scroll {
-    max-height: none;
+  .chat-topbar {
+    gap: 10px;
+    padding: 10px 14px;
   }
-  .pet-scroll :deep(.el-scrollbar__view) {
-    display: flex;
-    gap: 8px;
+  .pet-name {
+    font-size: 16px;
   }
-  .pet-item {
-    flex: 0 0 auto;
-    width: 168px;
-  }
-  .session-scroll {
-    max-height: 150px;
+  .mobile-panel-btn {
+    display: inline-flex;
   }
   .chat-body {
-    flex: none;
-    display: block;
+    min-height: 0;
+    padding: 12px 14px;
   }
   .msg-scroll {
-    height: 55vh;
+    height: auto;
+    min-height: 0;
   }
-  .session-del {
-    opacity: 1;
+  .empty-talk {
+    min-height: 0;
   }
-  .chat-topbar,
-  .chat-body,
   .chat-input {
-    padding-left: 14px;
-    padding-right: 14px;
+    padding: 10px 14px 12px;
+  }
+  .input-row {
+    gap: 8px;
+  }
+  .send-btn {
+    width: 68px;
   }
   .bubble-col {
     max-width: 84%;
   }
-  .send-btn {
-    width: 72px;
-  }
+}
+</style>
+
+<style>
+/* 弹层由 Element Plus teleport 到 body，根节点样式需放在全局作用域 */
+.petchat-mobile-popover.el-popper {
+  width: min(300px, calc(100vw - 40px)) !important;
+  max-width: calc(100vw - 24px);
+  padding: 12px;
+  border-radius: 14px;
 }
 </style>

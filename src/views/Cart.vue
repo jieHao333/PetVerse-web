@@ -198,16 +198,18 @@ const onPay = async () => {
                 <div v-if="!item.valid" class="invalid-tip">商品已失效（下架或售罄）</div>
                 <div class="item-price">¥{{ item.price }}</div>
               </div>
-              <el-input-number
-                :model-value="item.quantity"
-                :min="1"
-                :max="Math.max(item.stock || 1, 1)"
-                :disabled="!item.valid"
-                size="small"
-                @change="(val) => val && onQuantityChange(item, val)"
-              />
-              <div class="item-subtotal">¥{{ (Number(item.price) * item.quantity).toFixed(2) }}</div>
-              <el-button type="danger" link @click="onRemove(item)">删除</el-button>
+              <div class="item-ops">
+                <el-input-number
+                  :model-value="item.quantity"
+                  :min="1"
+                  :max="Math.max(item.stock || 1, 1)"
+                  :disabled="!item.valid"
+                  size="small"
+                  @change="(val) => val && onQuantityChange(item, val)"
+                />
+                <div class="item-subtotal">¥{{ (Number(item.price) * item.quantity).toFixed(2) }}</div>
+                <el-button type="danger" link @click="onRemove(item)">删除</el-button>
+              </div>
             </div>
           </div>
         </div>
@@ -360,6 +362,12 @@ const onPay = async () => {
   color: var(--pv-text-secondary);
   font-size: 13px;
 }
+.item-ops {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
 .item-subtotal {
   color: #d4380d;
   font-weight: 600;
@@ -459,39 +467,28 @@ const onPay = async () => {
 }
 
 @media (max-width: 768px) {
-  /* 窄屏购物车条目改两行：上行放勾选+图+名称价格，下行放数量/小计/删除 */
+  /* 窄屏购物车条目自动换行：首行勾选+图+名称价格，数量/小计/删除整体落到第二行右对齐 */
   .cart-item {
-    display: grid;
-    grid-template-columns: auto 64px 1fr auto auto;
-    grid-template-areas:
-      'check img info info info'
-      '.     .   qty  sum  del';
-    column-gap: 14px;
-    row-gap: 12px;
-    align-items: center;
+    flex-wrap: wrap;
+    column-gap: 10px;
+    row-gap: 10px;
     padding: 12px 14px;
   }
-  .cart-item > .el-checkbox {
-    grid-area: check;
-  }
   .item-img {
-    grid-area: img;
+    width: 56px;
+    height: 56px;
   }
-  .item-info {
-    grid-area: info;
+  /* 数量/小计/删除作为整体落到第二行右对齐，首行名称获得完整宽度 */
+  .item-ops {
+    flex-basis: 100%;
+    justify-content: flex-end;
+    gap: 10px;
   }
-  .cart-item > .el-input-number {
-    grid-area: qty;
-    justify-self: start;
+  .item-ops .el-input-number {
+    width: 96px;
   }
   .item-subtotal {
-    grid-area: sum;
     min-width: 0;
-    justify-self: end;
-  }
-  .cart-item > .el-button {
-    grid-area: del;
-    justify-self: end;
   }
   .checkout-right {
     width: 100%;

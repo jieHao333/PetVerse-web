@@ -558,6 +558,7 @@ const gotoProfile = (userId) => {
 .topic-chip {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
   padding: 0 10px;
   font-size: 12px;
   line-height: 20px;
@@ -566,6 +567,7 @@ const gotoProfile = (userId) => {
   border: 1px solid var(--pv-border);
   border-radius: 999px;
   cursor: pointer;
+  overflow-wrap: anywhere;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .topic-chip:hover {
@@ -637,6 +639,7 @@ const gotoProfile = (userId) => {
   font-size: 15px;
   color: var(--pv-text);
   cursor: pointer;
+  overflow-wrap: anywhere;
 }
 .feed-author:hover {
   text-decoration: underline;
@@ -644,12 +647,14 @@ const gotoProfile = (userId) => {
 .feed-sub {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   margin-top: 4px;
 }
 .feed-time {
   font-size: 12px;
   color: var(--pv-text-secondary);
+  white-space: nowrap;
 }
 .feed-actions {
   flex-shrink: 0;
@@ -659,6 +664,7 @@ const gotoProfile = (userId) => {
   font-size: 16px;
   font-weight: 600;
   color: var(--pv-text);
+  overflow-wrap: anywhere;
 }
 .feed-content {
   margin-top: 8px;
@@ -817,6 +823,10 @@ const gotoProfile = (userId) => {
   }
   .page-title {
     font-size: 20px;
+  }
+  /* 超长话题换行成多行时，胶囊圆角改为普通圆角，避免两端过度收弧 */
+  .topic-chip {
+    border-radius: 10px;
   }
 }
 </style>
