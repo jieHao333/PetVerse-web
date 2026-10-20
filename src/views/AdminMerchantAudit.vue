@@ -1,7 +1,6 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
-import AppHeader from '@/components/AppHeader.vue'
 import { useIsMobile } from '@/utils/responsive'
 import { auditApply, pageApply } from '@/api/shop'
 
@@ -101,8 +100,6 @@ const onAudit = async () => {
 
 <template>
   <div class="page">
-    <AppHeader title="入驻审批" show-back />
-
     <div class="page-container">
       <el-card shadow="never" class="section">
         <template #header>
@@ -238,9 +235,6 @@ const onAudit = async () => {
 </template>
 
 <style scoped>
-.page {
-  min-height: 100vh;
-}
 .section {
   margin-bottom: 24px;
 }

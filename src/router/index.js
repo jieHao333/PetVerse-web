@@ -35,6 +35,19 @@ const router = createRouter({
         { path: 'shop/store/:id', name: 'shopStore', component: () => import('@/views/ShopStore.vue'), meta: { public: true } },
         { path: 'shop/cart', name: 'shopCart', component: () => import('@/views/Cart.vue') },
         { path: 'shop/orders', name: 'shopOrders', component: () => import('@/views/MyOrders.vue') },
+        {
+          // 管理端商家管理挂在主布局下，进入后保留顶栏导航
+          path: 'admin/merchant-manage',
+          name: 'adminMerchantManage',
+          component: () => import('@/views/AdminMerchantManage.vue'),
+          meta: { requiresAuth: true, roles: ['ADMIN'] },
+        },
+        {
+          path: 'admin/merchant-audit',
+          name: 'adminMerchantAudit',
+          component: () => import('@/views/AdminMerchantAudit.vue'),
+          meta: { requiresAuth: true, roles: ['ADMIN'] },
+        },
         { path: 'profile', name: 'profile', component: () => import('@/views/Profile.vue') },
         { path: 'notifications', name: 'notifications', component: () => import('@/views/Notifications.vue') },
         { path: 'user/:id', name: 'userProfile', component: () => import('@/views/UserProfile.vue') },
@@ -76,12 +89,6 @@ const router = createRouter({
       name: 'merchantCenter',
       component: () => import('@/views/MerchantCenter.vue'),
       meta: { requiresAuth: true, roles: ['MERCHANT', 'ADMIN'] },
-    },
-    {
-      path: '/admin/merchant-audit',
-      name: 'adminMerchantAudit',
-      component: () => import('@/views/AdminMerchantAudit.vue'),
-      meta: { requiresAuth: true, roles: ['ADMIN'] },
     },
     {
       path: '/login',

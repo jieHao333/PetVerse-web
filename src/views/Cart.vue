@@ -66,6 +66,16 @@ const isGroupAllChecked = (group) => {
   return validItems.length > 0 && validItems.every((it) => isChecked(it))
 }
 
+// 店铺状态标签：方便买家一眼看出失效原因是店铺打烊/封禁
+const groupStatusMeta = (group) => {
+  const first = group.items[0]
+  if (!first) return null
+  if (first.shopWithdrawStatus === 1) return { label: '已停业', type: 'info' }
+  if (first.shopStatus === 2) return { label: '商家已封禁', type: 'danger' }
+  if (first.shopStatus === 0) return { label: '休息中', type: 'warning' }
+  return null
+}
+
 // 修改数量（后端校验库存上限）
 const onQuantityChange = async (item, quantity) => {
   try {
@@ -180,6 +190,14 @@ const onPay = async () => {
                   🏪 {{ group.shopName }}
                 </span>
               </el-checkbox>
+              <el-tag
+                v-if="groupStatusMeta(group)"
+                :type="groupStatusMeta(group).type"
+                size="small"
+                effect="plain"
+              >
+                {{ groupStatusMeta(group).label }}
+              </el-tag>
             </div>
 
             <div v-for="item in group.items" :key="item.id" class="cart-item" :class="{ invalid: !item.valid }">
@@ -195,7 +213,9 @@ const onPay = async () => {
               </el-image>
               <div class="item-info">
                 <div class="item-name">{{ item.productName }}</div>
-                <div v-if="!item.valid" class="invalid-tip">商品已失效（下架或售罄）</div>
+                <div v-if="!item.valid" class="invalid-tip">
+                  {{ item.invalidReason || '商品已失效（下架或售罄）' }}
+                </div>
                 <div class="item-price">¥{{ item.price }}</div>
               </div>
               <div class="item-ops">
@@ -305,6 +325,10 @@ const onPay = async () => {
 .shop-group-header {
   padding: 10px 16px;
   background: var(--pv-tint);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .shop-name {
   font-weight: 600;

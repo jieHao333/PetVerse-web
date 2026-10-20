@@ -1,9 +1,11 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { useIsMobile } from '@/utils/responsive'
 import {
+  applyWithdrawMerchant,
+  cancelWithdrawMerchant,
   completeOrder,
   deleteProduct,
   getMerchantInfo,
@@ -11,6 +13,7 @@ import {
   pageMyProducts,
   saveProduct,
   updateMerchantInfo,
+  updateMerchantStatus,
   updateProduct,
   uploadShopImage,
 } from '@/api/shop'
@@ -35,11 +38,121 @@ const loadMerchant = async () => {
   try {
     merchant.value = await getMerchantInfo()
   } catch (e) {
+    merchant.value = null
+    ElMessage.error(e.message)
+  }
+}
+
+const merchantBanned = computed(() => merchant.value?.status === 2)
+const merchantWithdrawing = computed(() => merchant.value?.withdrawStatus === 1)
+// 封禁与撤销冷静期内不能改店铺信息/商品/营业状态；打烊可以随时恢复营业
+const canManageStore = computed(() => !!merchant.value && !merchantBanned.value && !merchantWithdrawing.value)
+// 封禁后禁止任何商家操作；打烊与撤销冷静期仍可处理已产生的订单
+const canHandleOrders = computed(() => !!merchant.value && !merchantBanned.value)
+
+const shopStatusMeta = computed(() => {
+  if (!merchant.value) return { label: '', type: 'info' }
+  if (merchantWithdrawing.value) return { label: '撤销中', type: 'warning' }
+  if (merchantBanned.value) return { label: '已封禁', type: 'danger' }
+  if (merchant.value.status === 1) return { label: '营业中', type: 'success' }
+  return { label: '已打烊', type: 'info' }
+})
+
+const formatDateTime = (time) => (time ? String(time).replace('T', ' ').slice(0, 16) : '-')
+
+const statusUpdating = ref(false)
+const toggleShopStatus = async () => {
+  if (!canManageStore.value) return
+  const closing = merchant.value.status === 1
+  try {
+    await ElMessageBox.confirm(
+      closing
+        ? '打烊后店铺商品将从商城隐藏，买家无法加购和下单，已产生的订单仍可正常处理。'
+        : '开始营业后店铺商品会重新在商城展示，买家可正常下单。',
+      closing ? '确认打烊' : '确认营业',
+      { type: 'warning', confirmButtonText: closing ? '确认打烊' : '开始营业', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  statusUpdating.value = true
+  try {
+    merchant.value = await updateMerchantStatus(closing ? 0 : 1)
+    ElMessage.success(closing ? '店铺已打烊' : '店铺已开始营业')
+    loadProducts()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    statusUpdating.value = false
+  }
+}
+
+/* ==================== 撤销商家身份（5 天冷静期） ==================== */
+
+const withdrawDialog = ref(false)
+const withdrawAcknowledged = ref(false)
+const withdrawing = ref(false)
+
+const openWithdrawDialog = () => {
+  withdrawAcknowledged.value = false
+  withdrawDialog.value = true
+}
+
+const onApplyWithdraw = async () => {
+  if (!withdrawAcknowledged.value) {
+    ElMessage.warning('请先勾选确认，避免误触')
+    return
+  }
+  // 二次确认：警告弹窗后还需要在确认框中再次点确认
+  try {
+    await ElMessageBox.confirm(
+      '撤销申请提交后店铺将立即停止营业，5 天冷静期结束后所有商家数据将被永久清除且无法恢复。确定继续吗？',
+      '再次确认撤销',
+      {
+        type: 'warning',
+        confirmButtonText: '确认撤销商家身份',
+        cancelButtonText: '我再想想',
+      },
+    )
+  } catch {
+    return
+  }
+  withdrawing.value = true
+  try {
+    merchant.value = await applyWithdrawMerchant()
+    withdrawDialog.value = false
+    ElMessage.success('已提交撤销申请，店铺已停止营业；5 天内可随时取消撤销')
+    loadProducts()
+    loadOrders()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    withdrawing.value = false
+  }
+}
+
+const onCancelWithdraw = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定取消撤销商家身份并继续经营吗？店铺将恢复到撤销前的营业状态。',
+      '继续经营',
+      { type: 'success', confirmButtonText: '继续经营', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    merchant.value = await cancelWithdrawMerchant()
+    ElMessage.success('已取消撤销，欢迎继续经营')
+    loadProducts()
+    loadOrders()
+  } catch (e) {
     ElMessage.error(e.message)
   }
 }
 
 const openInfoDialog = () => {
+  if (!canManageStore.value) return
   Object.assign(infoForm, {
     shopName: merchant.value?.shopName || '',
     shopLogo: merchant.value?.shopLogo || '',
@@ -61,6 +174,10 @@ const onLogoChange = async (uploadFile) => {
 }
 
 const onSaveInfo = async () => {
+  if (!canManageStore.value) {
+    ElMessage.warning('当前店铺状态不可编辑信息')
+    return
+  }
   if (!infoForm.shopName.trim()) {
     ElMessage.warning('店铺名称不能为空')
     return
@@ -93,6 +210,11 @@ const categories = [
 ]
 
 const loadProducts = async () => {
+  if (!merchant.value || merchantBanned.value) {
+    products.value = []
+    total.value = 0
+    return
+  }
   loading.value = true
   try {
     const data = await pageMyProducts({ pageNum: pageNum.value, pageSize: pageSize.value })
@@ -106,10 +228,13 @@ const loadProducts = async () => {
   }
 }
 
-onMounted(() => {
-  loadMerchant()
-  loadProducts()
-  loadOrders()
+onMounted(async () => {
+  await loadMerchant()
+  // 封禁店铺不能查询商品/订单，页面仅展示封禁状态
+  if (merchant.value && !merchantBanned.value) {
+    loadProducts()
+    loadOrders()
+  }
 })
 
 const onSizeChange = () => {
@@ -143,6 +268,7 @@ const productRules = {
 }
 
 const openProductDialog = (row) => {
+  if (!canManageStore.value) return
   editingId.value = row?.id || null
   Object.assign(productForm, {
     name: row?.name || '',
@@ -167,6 +293,10 @@ const onProductImgChange = async (uploadFile) => {
 }
 
 const onSaveProduct = async () => {
+  if (!canManageStore.value) {
+    ElMessage.warning('当前店铺状态不可编辑商品')
+    return
+  }
   await productFormRef.value.validate()
   productSaving.value = true
   try {
@@ -188,6 +318,10 @@ const onSaveProduct = async () => {
 
 // 上架/下架切换
 const onToggleStatus = async (row) => {
+  if (!canManageStore.value) {
+    ElMessage.warning('当前店铺状态不可编辑商品')
+    return
+  }
   const next = row.status === 1 ? 0 : 1
   try {
     await updateProduct({ id: row.id, status: next })
@@ -199,6 +333,10 @@ const onToggleStatus = async (row) => {
 }
 
 const onDeleteProduct = async (row) => {
+  if (!canManageStore.value) {
+    ElMessage.warning('当前店铺状态不可编辑商品')
+    return
+  }
   try {
     await ElMessageBox.confirm(`确定删除商品「${row.name}」吗？`, '删除确认', { type: 'warning' })
   } catch {
@@ -232,6 +370,11 @@ const orderStatusOptions = [
 const orderStatusTagType = (code) => ({ 0: 'warning', 1: 'primary', 2: 'success', 3: 'info' })[code] || 'info'
 
 const loadOrders = async () => {
+  if (!merchant.value || merchantBanned.value) {
+    orders.value = []
+    orderTotal.value = 0
+    return
+  }
   orderLoading.value = true
   try {
     const data = await pageMerchantOrders({
@@ -278,12 +421,20 @@ const pickupOrder = ref(null)
 const pickupCodeInput = ref('')
 
 const openPickupDialog = (order) => {
+  if (!canHandleOrders.value) {
+    ElMessage.warning('当前店铺状态不可处理订单')
+    return
+  }
   pickupOrder.value = order
   pickupCodeInput.value = ''
   pickupDialog.value = true
 }
 
 const onCompleteOrder = async () => {
+  if (!canHandleOrders.value) {
+    ElMessage.warning('当前店铺状态不可处理订单')
+    return
+  }
   pickupSaving.value = true
   try {
     await completeOrder(pickupOrder.value.id, pickupCodeInput.value || undefined)
@@ -308,9 +459,38 @@ const onCompleteOrder = async () => {
         <template #header>
           <div class="card-header">
             <span class="card-title">我的店铺</span>
-            <el-button v-if="merchant" text type="primary" @click="openInfoDialog">编辑店铺</el-button>
+            <div v-if="merchant" class="shop-actions">
+              <el-button v-if="canManageStore" text type="primary" @click="openInfoDialog">编辑店铺</el-button>
+              <el-button
+                v-if="canManageStore"
+                text
+                :type="merchant.status === 1 ? 'warning' : 'success'"
+                :loading="statusUpdating"
+                @click="toggleShopStatus"
+              >
+                {{ merchant.status === 1 ? '打烊休息' : '开始营业' }}
+              </el-button>
+            </div>
           </div>
         </template>
+        <el-alert
+          v-if="merchantBanned"
+          type="error"
+          show-icon
+          :closable="false"
+          class="status-alert"
+          title="店铺已被平台封禁"
+          :description="`封禁原因：${merchant.banReason || '未填写'}；封禁时间：${formatDateTime(merchant.banTime)}。封禁期间商品不会在商城展示，买家无法加购或下单。`"
+        />
+        <el-alert
+          v-else-if="merchantWithdrawing"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="status-alert"
+          title="商家身份撤销冷静期中，店铺已停止营业"
+          :description="`冷静期截止：${formatDateTime(merchant.withdrawDeadline)}。到期后店铺、商品、评价等商家数据将被永久清除；在此之前可取消撤销继续经营。`"
+        />
         <div v-if="merchant" class="shop-info">
           <el-avatar :size="64" :src="merchant.shopLogo || ''" shape="square" class="shop-logo">
             {{ (merchant.shopName || '店')[0] }}
@@ -318,8 +498,8 @@ const onCompleteOrder = async () => {
           <div class="shop-meta">
             <div class="shop-name-line">
               <span class="shop-name">{{ merchant.shopName }}</span>
-              <el-tag :type="merchant.status === 1 ? 'success' : 'danger'" size="small" effect="plain">
-                {{ merchant.status === 1 ? '营业中' : '已封禁' }}
+              <el-tag :type="shopStatusMeta.type" size="small" effect="plain">
+                {{ shopStatusMeta.label }}
               </el-tag>
             </div>
             <div class="shop-desc">{{ merchant.description || '暂无店铺简介' }}</div>
@@ -330,11 +510,13 @@ const onCompleteOrder = async () => {
       </el-card>
 
       <!-- 商品管理 -->
-      <el-card shadow="never" class="section">
+      <el-card v-if="!merchantBanned" shadow="never" class="section">
         <template #header>
           <div class="card-header">
             <span class="card-title">商品管理</span>
-            <el-button type="primary" :icon="Plus" @click="openProductDialog(null)">新增商品</el-button>
+            <el-button type="primary" :icon="Plus" :disabled="!canManageStore" @click="openProductDialog(null)">
+              新增商品
+            </el-button>
           </div>
         </template>
 
@@ -367,11 +549,16 @@ const onCompleteOrder = async () => {
           </el-table-column>
           <el-table-column label="操作" :width="isMobile ? undefined : 180" :fixed="isMobile ? false : 'right'">
             <template #default="{ row }">
-              <el-button type="primary" link @click="openProductDialog(row)">编辑</el-button>
-              <el-button :type="row.status === 1 ? 'warning' : 'success'" link @click="onToggleStatus(row)">
+              <el-button type="primary" link :disabled="!canManageStore" @click="openProductDialog(row)">编辑</el-button>
+              <el-button
+                :type="row.status === 1 ? 'warning' : 'success'"
+                link
+                :disabled="!canManageStore"
+                @click="onToggleStatus(row)"
+              >
                 {{ row.status === 1 ? '下架' : '上架' }}
               </el-button>
-              <el-button type="danger" link @click="onDeleteProduct(row)">删除</el-button>
+              <el-button type="danger" link :disabled="!canManageStore" @click="onDeleteProduct(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -392,7 +579,7 @@ const onCompleteOrder = async () => {
       </el-card>
 
       <!-- 订单管理 -->
-      <el-card shadow="never" class="section">
+      <el-card v-if="!merchantBanned" shadow="never" class="section">
         <template #header>
           <div class="card-header">
             <span class="card-title">订单管理</span>
@@ -433,7 +620,13 @@ const onCompleteOrder = async () => {
           </el-table-column>
           <el-table-column label="操作" :width="isMobile ? undefined : 120" :fixed="isMobile ? false : 'right'">
             <template #default="{ row }">
-              <el-button v-if="row.status === 1" type="primary" link @click="openPickupDialog(row)">
+              <el-button
+                v-if="row.status === 1"
+                type="primary"
+                link
+                :disabled="!canHandleOrders"
+                @click="openPickupDialog(row)"
+              >
                 到店核销
               </el-button>
               <span v-else class="no-action">—</span>
@@ -455,9 +648,34 @@ const onCompleteOrder = async () => {
           />
         </div>
       </el-card>
-    </div>
 
-    <!-- 编辑店铺信息 -->
+      <!-- 商家身份：撤销冷静期 / 撤销入口 -->
+      <el-card v-if="merchant" shadow="never" class="section danger-card">
+        <template #header>
+          <div class="card-header">
+            <span class="card-title">商家身份</span>
+          </div>
+        </template>
+        <div v-if="merchantWithdrawing" class="danger-body">
+          <div class="danger-text">
+            已申请撤销商家身份，店铺处于停止营业状态。
+            <strong>{{ formatDateTime(merchant.withdrawDeadline) }}</strong>
+            后若未取消，店铺、商品、评价等商家数据将被永久清除。
+          </div>
+          <el-button type="success" @click="onCancelWithdraw">继续经营（取消撤销）</el-button>
+        </div>
+        <div v-else-if="merchantBanned" class="danger-body">
+          <div class="danger-text">店铺当前处于封禁状态，无法申请撤销商家身份，请联系管理员处理。</div>
+        </div>
+        <div v-else class="danger-body">
+          <div class="danger-text">
+            不再在平台经营时，可申请撤销商家身份。提交后店铺立即停止营业，并进入
+            <strong>5 天冷静期</strong>；冷静期内可随时取消撤销，到期后商家相关数据将被永久清除。
+          </div>
+          <el-button type="danger" plain @click="openWithdrawDialog">撤销商家身份</el-button>
+        </div>
+      </el-card>
+    </div>
     <el-dialog v-model="infoDialog" title="编辑店铺信息" width="480px">
       <el-form :model="infoForm" label-width="90px">
         <el-form-item label="店铺名称" required>
@@ -573,6 +791,41 @@ const onCompleteOrder = async () => {
         <el-button type="primary" :loading="pickupSaving" @click="onCompleteOrder">确认核销</el-button>
       </template>
     </el-dialog>
+
+    <!-- 撤销商家身份：警告 + 勾选确认 + 二次确认 -->
+    <el-dialog
+      v-model="withdrawDialog"
+      title="撤销商家身份"
+      width="520px"
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        type="warning"
+        show-icon
+        :closable="false"
+        title="该操作提交后立即生效，请确认不是误触"
+      />
+      <div class="withdraw-warning">
+        <p>1. 提交后店铺立即停止营业，商品从商城隐藏，买家无法加购或下单；</p>
+        <p>2. 进入 <strong>5 天冷静期</strong>，期间可点击「继续经营」随时取消撤销；</p>
+        <p>3. 冷静期结束后，店铺、商品、评价等商家数据将被<strong>永久清除且无法恢复</strong>；</p>
+        <p>4. 历史订单记录会保留，供买家查询与售后使用。</p>
+        <el-checkbox v-model="withdrawAcknowledged">
+          我已了解上述后果，确认本次操作不是误触
+        </el-checkbox>
+      </div>
+      <template #footer>
+        <el-button @click="withdrawDialog = false">取消</el-button>
+        <el-button
+          type="danger"
+          :loading="withdrawing"
+          :disabled="!withdrawAcknowledged"
+          @click="onApplyWithdraw"
+        >
+          申请撤销
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -636,6 +889,49 @@ const onCompleteOrder = async () => {
   font-size: 12px;
   color: var(--pv-text-secondary);
   margin-top: 6px;
+}
+.status-alert {
+  margin-bottom: 16px;
+}
+.shop-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 撤销商家身份 */
+.danger-card :deep(.el-card__header) {
+  border-bottom-color: #f3d6d1;
+}
+.danger-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+.danger-text {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--pv-text-secondary);
+}
+.danger-text strong {
+  color: #d4380d;
+}
+.withdraw-warning {
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--pv-text-secondary);
+}
+.withdraw-warning p {
+  margin: 0 0 6px;
+}
+.withdraw-warning strong {
+  color: #d4380d;
+}
+.withdraw-warning .el-checkbox {
+  margin-top: 10px;
+  color: var(--pv-text);
 }
 
 /* 商品表格 */

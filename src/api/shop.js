@@ -19,6 +19,17 @@ export const pageApply = (params) => request.get('/shop/admin/apply/page', { par
 /** 审批入驻申请：{ id, approved, rejectReason } */
 export const auditApply = (data) => request.post('/shop/admin/apply/audit', data)
 
+/* ==================== 商家管理（管理端） ==================== */
+
+/** 分页查询商家店铺（状态/撤销中/店铺名筛选） */
+export const pageAdminMerchants = (params) => request.get('/shop/admin/merchant/page', { params })
+
+/** 封禁商家：{ reason }（封禁后商城隐藏该店商品且不可下单） */
+export const banMerchant = (id, reason) => request.post(`/shop/admin/merchant/${id}/ban`, { reason })
+
+/** 解封商家（解封后店铺恢复为打烊状态） */
+export const unbanMerchant = (id) => request.post(`/shop/admin/merchant/${id}/unban`)
+
 /* ==================== 商家中心（商家端） ==================== */
 
 /** 查询我的店铺信息 */
@@ -26,6 +37,15 @@ export const getMerchantInfo = () => request.get('/shop/merchant/info')
 
 /** 修改我的店铺信息 */
 export const updateMerchantInfo = (data) => request.put('/shop/merchant/info', data)
+
+/** 切换店铺营业状态：0-打烊 1-营业 */
+export const updateMerchantStatus = (status) => request.put('/shop/merchant/status', { status })
+
+/** 申请撤销商家身份（进入 5 天冷静期，期间店铺立即停止售卖） */
+export const applyWithdrawMerchant = () => request.post('/shop/merchant/withdraw')
+
+/** 冷静期内取消撤销，恢复正常经营 */
+export const cancelWithdrawMerchant = () => request.post('/shop/merchant/withdraw/cancel')
 
 /** 新增商品（默认下架） */
 export const saveProduct = (data) => request.post('/shop/merchant/product', data)

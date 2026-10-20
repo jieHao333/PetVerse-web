@@ -20,6 +20,35 @@ const quantity = ref(1)
 
 const categoryTagType = (code) => ({ 1: 'primary', 2: 'warning', 3: 'danger' })[code] || 'info'
 
+// 店铺当前是否可售：营业中且不在撤销冷静期
+const shopSelling = computed(() => !!detail.value && detail.value.shopSelling !== false)
+
+const shopNotice = computed(() => {
+  if (!detail.value) return null
+  if (detail.value.shopWithdrawStatus === 1) {
+    return {
+      type: 'info',
+      title: '店铺已停止营业',
+      description: '该商品所属店铺已申请撤销商家身份，暂不可购买。',
+    }
+  }
+  if (detail.value.shopStatus === 2) {
+    return {
+      type: 'error',
+      title: '该商家已被封禁',
+      description: '该商品所属商家已被平台封禁，商品暂不可购买。',
+    }
+  }
+  if (detail.value.shopStatus === 0) {
+    return {
+      type: 'warning',
+      title: '店铺休息中',
+      description: '该商品所属店铺暂时打烊，商品暂不可购买，请稍后再来。',
+    }
+  }
+  return null
+})
+
 const loadDetail = async () => {
   loading.value = true
   try {
@@ -45,6 +74,10 @@ const goStore = () => {
 const addingCart = ref(false)
 
 const onAddToCart = async () => {
+  if (!shopSelling.value) {
+    ElMessage.warning(shopNotice.value?.title || '店铺暂不可购买')
+    return
+  }
   // 游客可浏览商品与评价，加购、下单、评价互动都需要先登录
   if (!(await requireLogin(router, route.fullPath))) return
   addingCart.value = true
@@ -64,6 +97,10 @@ const buying = ref(false)
 const buyRemark = ref('')
 
 const openBuyDialog = async () => {
+  if (!shopSelling.value) {
+    ElMessage.warning(shopNotice.value?.title || '店铺暂不可购买')
+    return
+  }
   if (!(await requireLogin(router, route.fullPath))) return
   buyRemark.value = ''
   buyDialog.value = true
@@ -339,6 +376,15 @@ onMounted(() => {
         </template>
 
         <div v-loading="loading">
+          <el-alert
+            v-if="shopNotice"
+            :type="shopNotice.type"
+            show-icon
+            :closable="false"
+            :title="shopNotice.title"
+            :description="shopNotice.description"
+            class="shop-notice"
+          />
           <el-empty v-if="!loading && !detail" description="商品不存在或已下架">
             <el-button type="primary" @click="router.push('/shop')">返回商城</el-button>
           </el-empty>
@@ -381,7 +427,7 @@ onMounted(() => {
                   size="large"
                   :icon="ShoppingCart"
                   :loading="addingCart"
-                  :disabled="!detail.stock"
+                  :disabled="!shopSelling || !detail.stock"
                   @click="onAddToCart"
                 >
                   加入购物车
@@ -389,10 +435,10 @@ onMounted(() => {
                 <el-button
                   type="primary"
                   size="large"
-                  :disabled="!detail.stock"
+                  :disabled="!shopSelling || !detail.stock"
                   @click="openBuyDialog"
                 >
-                  {{ detail.stock ? '立即购买' : '已售罄' }}
+                  {{ !shopSelling ? '暂不可购买' : detail.stock ? '立即购买' : '已售罄' }}
                 </el-button>
               </div>
               <div class="info-tip">仅支持到店自取，支付后凭取货码到店取货</div>
@@ -685,6 +731,9 @@ onMounted(() => {
 .header-actions {
   display: flex;
   align-items: center;
+}
+.shop-notice {
+  margin-bottom: 16px;
 }
 
 /* 详情布局：左图右信息 */

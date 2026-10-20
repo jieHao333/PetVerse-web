@@ -44,6 +44,8 @@ const NAV_ITEMS = [
   // 知识库是全用户共享的 AI 检索语料，入口只对管理员可见（路由与后端同样有校验）
   { path: '/kb', label: '知识库', roles: ['ADMIN'] },
   { path: '/shop', label: '宠物商城' },
+  { path: '/admin/merchant-manage', label: '商家管理', roles: ['ADMIN'] },
+  { path: '/admin/merchant-audit', label: '入驻审批', roles: ['ADMIN'] },
 ]
 
 /** 按当前角色过滤主导航：无 roles 的项所有人可见 */
@@ -241,9 +243,6 @@ onUnmounted(stopPolling)
           <div v-if="role === 'MERCHANT' || role === 'ADMIN'" class="drawer-item" @click="goNav('/merchant-center')">
             商家中心
           </div>
-          <div v-if="role === 'ADMIN'" class="drawer-item" @click="goNav('/admin/merchant-audit')">
-            入驻审批
-          </div>
           <template v-if="loggedIn">
             <div class="drawer-item danger" @click="onLogout">退出登录</div>
           </template>
@@ -314,9 +313,6 @@ onUnmounted(stopPolling)
               </el-dropdown-item>
               <el-dropdown-item v-if="role === 'MERCHANT' || role === 'ADMIN'" @click="router.push('/merchant-center')">
                 商家中心
-              </el-dropdown-item>
-              <el-dropdown-item v-if="role === 'ADMIN'" @click="router.push('/admin/merchant-audit')">
-                入驻审批
               </el-dropdown-item>
               <el-dropdown-item divided @click="onLogout">退出登录</el-dropdown-item>
             </el-dropdown-menu>

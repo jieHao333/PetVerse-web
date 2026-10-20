@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Search, ShoppingCart } from '@element-plus/icons-vue'
 import { addCartItem, getStoreInfo, pageProducts } from '@/api/shop'
@@ -28,6 +28,46 @@ const categories = [
 
 const categoryTagType = (code) => ({ 1: 'primary', 2: 'warning', 3: 'danger' })[code] || 'info'
 
+// 店铺可售状态：营业中且不在撤销冷静期
+const storeSelling = computed(
+  () => !!store.value && store.value.status === 1 && store.value.withdrawStatus !== 1,
+)
+
+const storeStatusMeta = computed(() => {
+  if (!store.value) return { label: '', type: 'info' }
+  if (store.value.withdrawStatus === 1) return { label: '已停业', type: 'info' }
+  if (store.value.status === 2) return { label: '已封禁', type: 'danger' }
+  if (store.value.status === 1) return { label: '营业中', type: 'success' }
+  return { label: '休息中', type: 'warning' }
+})
+
+// 封禁/打烊/撤销冷静期对买家的提示
+const storeNotice = computed(() => {
+  if (!store.value) return null
+  if (store.value.withdrawStatus === 1) {
+    return {
+      type: 'info',
+      title: '店铺已停止营业',
+      description: '该店铺已申请撤销商家身份，商品暂不可购买。',
+    }
+  }
+  if (store.value.status === 2) {
+    return {
+      type: 'error',
+      title: '该商家已被封禁',
+      description: '该商家因违规已被平台封禁，店铺商品暂不可购买。',
+    }
+  }
+  if (store.value.status === 0) {
+    return {
+      type: 'warning',
+      title: '店铺休息中',
+      description: '商家暂时打烊，商品暂不可购买，请稍后再来。',
+    }
+  }
+  return null
+})
+
 const addingCart = ref(false)
 
 // 加载店铺公开信息
@@ -43,8 +83,13 @@ const loadStore = async () => {
   }
 }
 
-// 加载该店铺的上架商品
+// 加载该店铺的上架商品（店铺不可售时不查询，商城侧也会统一过滤）
 const loadProducts = async () => {
+  if (!storeSelling.value) {
+    products.value = []
+    total.value = 0
+    return
+  }
   loading.value = true
   try {
     const data = await pageProducts({
@@ -64,12 +109,18 @@ const loadProducts = async () => {
   }
 }
 
-const init = () => {
+const init = async () => {
   pageNum.value = 1
   keyword.value = ''
   category.value = ''
-  loadStore()
-  loadProducts()
+  store.value = null
+  await loadStore()
+  if (storeSelling.value) {
+    loadProducts()
+  } else {
+    products.value = []
+    total.value = 0
+  }
 }
 
 onMounted(init)
@@ -101,6 +152,11 @@ const openDetail = (item) => {
 const addToCart = async (productId, quantity) => {
   // 游客可浏览店铺与商品，加购需要先登录
   if (!(await requireLogin(router, route.fullPath))) return
+  // 页面停留期间店铺可能已打烊/被封禁，提交前再拦一次
+  if (!storeSelling.value) {
+    ElMessage.warning(storeNotice.value?.title || '店铺暂不可购买')
+    return
+  }
   addingCart.value = true
   try {
     await addCartItem({ productId, quantity })
@@ -127,7 +183,9 @@ const addToCart = async (productId, quantity) => {
           <div class="store-info">
             <div class="store-name-row">
               <span class="store-name">{{ store.shopName }}</span>
-              <el-tag type="success" size="small" effect="plain">营业中</el-tag>
+              <el-tag :type="storeStatusMeta.type" size="small" effect="plain">
+                {{ storeStatusMeta.label }}
+              </el-tag>
             </div>
             <div class="store-desc">{{ store.description || '这家店铺很低调，还没有填写简介~' }}</div>
             <div class="store-meta">
@@ -142,8 +200,18 @@ const addToCart = async (productId, quantity) => {
         </div>
       </el-card>
 
-      <!-- 店铺商品 -->
-      <el-card shadow="never" class="section">
+      <el-alert
+        v-if="storeNotice"
+        :type="storeNotice.type"
+        show-icon
+        :closable="false"
+        :title="storeNotice.title"
+        :description="storeNotice.description"
+        class="section"
+      />
+
+      <!-- 店铺商品：仅营业中展示，封禁/打烊/撤销中整体隐藏 -->
+      <el-card v-if="storeSelling" shadow="never" class="section">
         <template #header>
           <div class="card-header">
             <span class="card-title">全部商品</span>
@@ -228,6 +296,12 @@ const addToCart = async (productId, quantity) => {
             @size-change="onSizeChange"
           />
         </div>
+      </el-card>
+
+      <el-card v-if="store && !storeSelling" shadow="never" class="section">
+        <el-empty :description="storeNotice?.title || '店铺暂未营业'" :image-size="100">
+          <el-button type="primary" @click="router.push('/shop')">返回商城逛逛</el-button>
+        </el-empty>
       </el-card>
     </div>
   </div>

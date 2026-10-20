@@ -1,6 +1,8 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ArrowDown, Collection, Delete, Menu, Paperclip, Plus } from '@element-plus/icons-vue'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import { getMyPet, listMyPets } from '@/api/pet'
 import {
@@ -25,6 +27,9 @@ const formatMsgTime = (ts) => {
   const mm = String(d.getMinutes()).padStart(2, '0')
   return `${hh}:${mm}`
 }
+
+// AI 回复是 markdown 文本，气泡内渲染成富文本；用户消息保持纯文本插值
+const renderMd = (text) => (text ? DOMPurify.sanitize(marked.parse(text, { breaks: true })) : '')
 
 // ---------- RAG 引用来源（回答气泡下方的「参考来源」折叠条） ----------
 // 默认折叠，只展开用户主动点开的那条消息，避免长对话里满屏都是来源列表
@@ -928,7 +933,9 @@ const onEnterKey = (e) => {
                             </div>
                           </template>
                         </div>
-                        <span v-if="msg.content" class="bubble-text">{{ msg.content }}</span>
+                        <span v-if="msg.content && msg.role === 'user'" class="bubble-text">{{ msg.content }}</span>
+                        <!-- eslint-disable-next-line vue/no-v-html -- 内容已过 DOMPurify -->
+                        <div v-else-if="msg.content" class="bubble-md" v-html="renderMd(msg.content)"></div>
                         <span v-if="msg.stopped" class="stop-mark">（已停止）</span>
                         <span v-if="msg.error" class="err-mark">{{ msg.error }}</span>
                       </template>
@@ -1528,6 +1535,83 @@ const onEnterKey = (e) => {
   background: var(--pv-ink);
   border-bottom-right-radius: 4px;
   color: #fff;
+}
+/* AI 回复的 markdown 富文本：覆盖气泡的 pre-wrap，避免段落间出现多余空行 */
+.bubble-md {
+  white-space: normal;
+}
+.bubble-md :deep(*) {
+  margin-top: 0;
+}
+.bubble-md :deep(* + *) {
+  margin-top: 6px;
+}
+.bubble-md :deep(ul),
+.bubble-md :deep(ol) {
+  padding-left: 20px;
+  margin: 6px 0;
+}
+.bubble-md :deep(li + li) {
+  margin-top: 2px;
+}
+.bubble-md :deep(h1),
+.bubble-md :deep(h2),
+.bubble-md :deep(h3),
+.bubble-md :deep(h4) {
+  margin: 12px 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--pv-text);
+}
+.bubble-md :deep(h1:first-child),
+.bubble-md :deep(h2:first-child),
+.bubble-md :deep(h3:first-child) {
+  margin-top: 0;
+}
+.bubble-md :deep(table) {
+  width: 100%;
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+}
+.bubble-md :deep(th),
+.bubble-md :deep(td) {
+  padding: 5px 8px;
+  border: 1px solid var(--pv-border);
+  text-align: left;
+  vertical-align: top;
+}
+.bubble-md :deep(th) {
+  background: var(--pv-tint);
+}
+.bubble-md :deep(code) {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--pv-tint);
+  font-size: 12.5px;
+}
+.bubble-md :deep(pre) {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--pv-tint);
+  overflow-x: auto;
+}
+.bubble-md :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  white-space: pre;
+}
+.bubble-md :deep(img) {
+  max-width: 100%;
+  height: auto;
+}
+.bubble-md :deep(hr) {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--pv-border);
 }
 .msg-time {
   margin-top: 4px;
