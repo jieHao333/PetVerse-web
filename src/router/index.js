@@ -30,6 +30,13 @@ const router = createRouter({
         },
         { path: 'shop', name: 'shop', component: () => import('@/views/Shop.vue'), meta: { public: true } },
         { path: 'shop/product/:id', name: 'productDetail', component: () => import('@/views/ProductDetail.vue'), meta: { public: true } },
+        {
+          // 领券中心：普通用户领取优惠券、查看我的优惠券
+          path: 'coupons',
+          name: 'couponCenter',
+          component: () => import('@/views/CouponCenter.vue'),
+          meta: { requiresAuth: true },
+        },
         { path: 'shop/product/:id/review', name: 'productReview', component: () => import('@/views/ProductReview.vue') },
         { path: 'shop/my-reviews', name: 'myReviews', component: () => import('@/views/MyReviews.vue') },
         { path: 'shop/store/:id', name: 'shopStore', component: () => import('@/views/ShopStore.vue'), meta: { public: true } },
@@ -46,6 +53,13 @@ const router = createRouter({
           path: 'admin/merchant-audit',
           name: 'adminMerchantAudit',
           component: () => import('@/views/AdminMerchantAudit.vue'),
+          meta: { requiresAuth: true, roles: ['ADMIN'] },
+        },
+        {
+          // 管理端优惠券管理：新建/发放/暂停/删除优惠券，查看兑换码
+          path: 'admin/coupons',
+          name: 'adminCoupons',
+          component: () => import('@/views/AdminCoupons.vue'),
           meta: { requiresAuth: true, roles: ['ADMIN'] },
         },
         { path: 'profile', name: 'profile', component: () => import('@/views/Profile.vue') },

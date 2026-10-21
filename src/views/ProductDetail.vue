@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ShoppingCart } from '@element-plus/icons-vue'
 import { addCartItem, buyNowOrder, deleteReviewReply, getProductDetail, getReviewSummary, pageProductReviews, pageReviewReplies, payOrder, saveReviewReply } from '@/api/shop'
+import { queryAvailableCoupons } from '@/api/coupon'
 import { summarizeProductReviews } from '@/api/ai'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
 import { requireLogin } from '@/utils/auth'
@@ -91,10 +92,41 @@ const onAddToCart = async () => {
   }
 }
 
-// 直接购买：先确认订单（可填备注），下单后进入模拟支付
+// 直接购买：先确认订单（可填备注、选优惠券），下单后进入模拟支付
 const buyDialog = ref(false)
 const buying = ref(false)
 const buyRemark = ref('')
+
+// 可用优惠券方案（仅展示单券方案，与下单接口的单张券入参一致）
+const couponOptions = ref([])
+const couponLoading = ref(false)
+const selectedCouponId = ref('')
+
+const loadAvailableCoupons = async () => {
+  const products = [
+    {
+      id: detail.value.id,
+      categoryId: detail.value.category != null ? Number(detail.value.category) : null,
+      price: Math.round(Number(detail.value.price) * quantity.value * 100),
+    },
+  ]
+  couponLoading.value = true
+  try {
+    const solutions = (await queryAvailableCoupons(products)) || []
+    couponOptions.value = solutions
+      .filter((s) => (s.ids || []).length === 1 && Number(s.discountAmount) > 0)
+      .map((s) => ({
+        id: s.ids[0],
+        rule: (s.rules && s.rules[0]) || '优惠券',
+        discount: Number(s.discountAmount) / 100,
+      }))
+  } catch (e) {
+    // 优惠券试算失败不阻断下单，用户仍可按原价购买
+    couponOptions.value = []
+  } finally {
+    couponLoading.value = false
+  }
+}
 
 const openBuyDialog = async () => {
   if (!shopSelling.value) {
@@ -103,8 +135,19 @@ const openBuyDialog = async () => {
   }
   if (!(await requireLogin(router, route.fullPath))) return
   buyRemark.value = ''
+  selectedCouponId.value = ''
+  couponOptions.value = []
   buyDialog.value = true
+  await loadAvailableCoupons()
 }
+
+const selectedCoupon = computed(() =>
+  couponOptions.value.find((c) => String(c.id) === String(selectedCouponId.value)),
+)
+const couponDiscount = computed(() => (selectedCoupon.value ? selectedCoupon.value.discount : 0))
+const buyPayable = computed(() =>
+  Math.max(0, Number(buyTotal.value) - couponDiscount.value).toFixed(2),
+)
 
 const payDialog = ref(false)
 const paying = ref(false)
@@ -117,6 +160,7 @@ const onBuyNow = async () => {
       productId: detail.value.id,
       quantity: quantity.value,
       remark: buyRemark.value || undefined,
+      userCouponId: selectedCouponId.value || undefined,
     })
     buyDialog.value = false
     pendingOrder.value = order
@@ -669,7 +713,28 @@ onMounted(() => {
           <span class="confirm-name">{{ detail.name }} × {{ quantity }}</span>
           <span class="confirm-amount">¥{{ buyTotal }}</span>
         </div>
-        <div class="confirm-total">应付金额：<em>¥{{ buyTotal }}</em></div>
+        <div class="confirm-coupon">
+          <span class="confirm-coupon-label">优惠券</span>
+          <el-select
+            v-model="selectedCouponId"
+            :loading="couponLoading"
+            :placeholder="couponOptions.length ? '不使用优惠券' : '暂无可用优惠券'"
+            :disabled="!couponOptions.length"
+            clearable
+            style="flex: 1"
+          >
+            <el-option
+              v-for="c in couponOptions"
+              :key="c.id"
+              :label="`${c.rule}（立减 ¥${c.discount.toFixed(2)}）`"
+              :value="c.id"
+            />
+          </el-select>
+        </div>
+        <div v-if="couponDiscount > 0" class="confirm-discount">
+          券优惠：<em>-¥{{ couponDiscount.toFixed(2) }}</em>
+        </div>
+        <div class="confirm-total">实付金额：<em>¥{{ buyPayable }}</em></div>
         <el-input
           v-model="buyRemark"
           type="textarea"
@@ -689,7 +754,10 @@ onMounted(() => {
     <el-dialog v-model="payDialog" title="订单支付" width="420px" :close-on-click-modal="false">
       <div v-if="pendingOrder" class="pay-body">
         <div class="pay-order-no">订单号：{{ pendingOrder.orderNo }}</div>
-        <div class="pay-amount">¥{{ pendingOrder.totalAmount }}</div>
+        <div class="pay-amount">¥{{ pendingOrder.payAmount ?? pendingOrder.totalAmount }}</div>
+        <div v-if="Number(pendingOrder.discountAmount) > 0" class="pay-tip">
+          已优惠 ¥{{ pendingOrder.discountAmount }}
+        </div>
         <div class="pay-tip">模拟支付环境，点击下方按钮即视为支付成功；支付完成后生成取货码</div>
       </div>
       <template #footer>
@@ -1186,6 +1254,25 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.confirm-coupon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--pv-text-secondary);
+}
+.confirm-coupon-label {
+  flex-shrink: 0;
+}
+.confirm-discount {
+  text-align: right;
+  font-size: 13px;
+  color: #d4380d;
+}
+.confirm-discount em {
+  font-style: normal;
+  font-weight: 600;
 }
 .confirm-total {
   text-align: right;

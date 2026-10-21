@@ -231,7 +231,11 @@ const openMyReviews = () => {
               <div v-if="order.remark" class="order-remark">备注：{{ order.remark }}</div>
               <div class="order-actions">
                 <span class="order-total">
-                  合计：<em>¥{{ order.totalAmount }}</em>
+                  <template v-if="Number(order.discountAmount) > 0">
+                    已优惠 ¥{{ order.discountAmount }}，实付：
+                  </template>
+                  <template v-else>合计：</template>
+                  <em>¥{{ order.payAmount ?? order.totalAmount }}</em>
                 </span>
                 <template v-if="order.status === 0">
                   <!-- 已超时：隐藏支付与取消入口，后端已惰性取消，等待列表刷新同步状态 -->

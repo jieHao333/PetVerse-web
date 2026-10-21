@@ -44,6 +44,8 @@ const NAV_ITEMS = [
   // 知识库是全用户共享的 AI 检索语料，入口只对管理员可见（路由与后端同样有校验）
   { path: '/kb', label: '知识库', roles: ['ADMIN'] },
   { path: '/shop', label: '宠物商城' },
+  { path: '/coupons', label: '领券中心' },
+  { path: '/admin/coupons', label: '优惠券管理', roles: ['ADMIN'] },
   { path: '/admin/merchant-manage', label: '商家管理', roles: ['ADMIN'] },
   { path: '/admin/merchant-audit', label: '入驻审批', roles: ['ADMIN'] },
 ]
