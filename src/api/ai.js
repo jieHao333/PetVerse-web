@@ -391,10 +391,11 @@ export const getRecommendations = (scene = 'home', refresh = false) =>
 const _RECOMMEND_CACHE_MAX_AGE = 24 * 60 * 60 * 1000
 
 // 缓存键按用户 + 场景隔离（用户 id 取自 localStorage 登录信息，换账号互不可见），未登录时不读写
+// v3：旧键缓存可能残留历史重复数据，提升版本号让本地缓存整体失效一次
 const _recommendCacheKey = (scene) => {
   try {
     const uid = JSON.parse(localStorage.getItem('user') || 'null')?.id
-    return uid != null ? `pv:recommend:${scene}:${uid}` : ''
+    return uid != null ? `pv:recommend:v3:${scene}:${uid}` : ''
   } catch {
     return ''
   }
