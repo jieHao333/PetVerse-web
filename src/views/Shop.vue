@@ -11,7 +11,8 @@ const router = useRouter()
 const products = ref([])
 const total = ref(0)
 const pageNum = ref(1)
-const pageSize = ref(12)
+// 每页 14 条 = 宽屏 7 列 × 2 行，与下方 product-grid 列数对齐，保证每页恰好铺满整数行
+const pageSize = ref(14)
 const keyword = ref('')
 const category = ref('')
 const loading = ref(false)
@@ -180,7 +181,7 @@ const openMyReviews = async () => {
           <el-pagination
             v-model:current-page="pageNum"
             v-model:page-size="pageSize"
-            :page-sizes="[12, 24, 48]"
+            :page-sizes="[14, 28, 56]"
             :total="Number(total)"
             layout="sizes, prev, pager, next"
             background
@@ -275,6 +276,13 @@ const openMyReviews = async () => {
   gap: 16px;
   min-height: 120px;
   position: relative;
+}
+/* 宽屏固定 7 列：auto-fill 在不同窗口宽度下列数会浮动，导致每页 14 条铺不满，
+   这里 ≥1440px 锁定 7 列，与每页条数（14 = 7×2）严格对齐 */
+@media (min-width: 1440px) {
+  .product-grid {
+    grid-template-columns: repeat(7, 1fr);
+  }
 }
 .empty {
   grid-column: 1 / -1;
