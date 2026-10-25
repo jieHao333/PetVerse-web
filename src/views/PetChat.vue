@@ -14,7 +14,7 @@ import {
   deleteChatMemory,
   uploadChatMedia,
 } from '@/api/ai'
-import { petAgeInfo, realPetMonths } from '@/utils/pet'
+import { petAgeInfo, petHealthText, realPetMonths } from '@/utils/pet'
 
 // 当前时间戳（秒），本地新消息使用
 const nowSec = () => Math.floor(Date.now() / 1000)
@@ -572,13 +572,13 @@ const sendText = (text, attachments = []) => {
     // 未填写的字段为 null / 空串，过滤掉后再发送，避免后端参数校验失败
     health: Object.fromEntries(
       Object.entries({
-        weight: pet.value.weight,
-        bcs: pet.value.bcs,
-        deworming: pet.value.deworming,
-        specialPeriod: pet.value.specialPeriod,
-        vaccine: pet.value.vaccine,
-        rearingMethod: pet.value.rearingMethod,
-        medicalHistory: pet.value.medicalHistory,
+        weight: petHealthText(pet.value, 'weight', true),
+        bcs: petHealthText(pet.value, 'bcs', true),
+        deworming: petHealthText(pet.value, 'deworming', true),
+        specialPeriod: petHealthText(pet.value, 'specialPeriod', true),
+        vaccine: petHealthText(pet.value, 'vaccine', true),
+        rearingMethod: petHealthText(pet.value, 'rearingMethod', true),
+        medicalHistory: petHealthText(pet.value, 'medicalHistory', true),
       }).filter(([, v]) => v != null && v !== ''),
     ),
   }

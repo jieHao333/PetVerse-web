@@ -37,3 +37,25 @@ export const petAgeInfo = (pet) => {
   }
   return { age: pet.age ?? null, ageText: pet.age != null ? `${pet.age} 岁` : '' }
 }
+
+/** 健康记录时间统一以本地 yyyy-MM-dd HH:mm 展示，兼容后端 ISO 时间字符串 */
+export const healthRecordTimeText = (recordTime) => {
+  if (!recordTime) return ''
+  return String(recordTime).replace('T', ' ').slice(0, 16)
+}
+
+/**
+ * 健康信息展示 / AI 上下文统一拼接单位与记录时间。
+ * 原字段仍保存纯内容，旧的自由文本没有元数据时保持原样展示。
+ */
+export const petHealthText = (pet, key, withRecordTime = false) => {
+  const rawValue = pet?.[key]
+  if (rawValue == null || String(rawValue).trim() === '') return ''
+  const meta = pet?.healthMeta?.[key]
+  let text = String(rawValue).trim()
+  if (meta?.unit && !text.endsWith(meta.unit)) text += ` ${meta.unit}`
+  if (withRecordTime && meta?.recordTime) {
+    text += `（记录时间：${healthRecordTimeText(meta.recordTime)}）`
+  }
+  return text
+}

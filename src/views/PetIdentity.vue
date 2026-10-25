@@ -5,7 +5,7 @@ import { Plus, MagicStick } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { listMyPets, uploadPetAvatar, updatePetHealth } from '@/api/pet'
 import { assessPetHealth } from '@/api/ai'
-import { petAgeInfo, realPetMonths } from '@/utils/pet'
+import { healthRecordTimeText, petAgeInfo, petHealthText, realPetMonths } from '@/utils/pet'
 import { useIsMobile } from '@/utils/responsive'
 import logo from '@/assets/logo.jpg'
 
@@ -109,38 +109,139 @@ const goProfile = () => {
 }
 
 // ===== 健康信息（仅猫/狗展示，随 AI 咨询上下文发送） =====
-// 类别元数据：key 与后端字段 / AI 上下文键一致；icon 用 emoji、color 为图标底色
+// 每类健康项使用适合的录入控件；unit / recordTime 独立保存，原字段仍保留纯内容
 const HEALTH_ITEMS = [
-  { key: 'weight', label: '体重', icon: '⚖️', color: '#4a90d9', hint: '定时记录体重可以更好的管理爱宠健康～', full: true },
-  { key: 'bcs', label: 'BCS', icon: '📊', color: '#2ec7a0', hint: '体况评分' },
-  { key: 'deworming', label: '驱虫', icon: '🐛', color: '#8b6fe8', hint: '建议3个月1次' },
-  { key: 'specialPeriod', label: '特殊时期', icon: '📅', color: '#f5a623', hint: '如发情期 / 孕期 / 哺乳期' },
-  { key: 'vaccine', label: '疫苗', icon: '💉', color: '#e858a8', hint: '建议接种疫苗' },
-  { key: 'rearingMethod', label: '养育方式', icon: '🏠', color: '#e8604c', hint: '如室内散养 / 笼养等' },
-  { key: 'medicalHistory', label: '病史', icon: '🏥', color: '#29b6d8', hint: '记录既往疾病与用药' },
+  {
+    key: 'weight', label: '体重', icon: '⚖️', color: '#4a90d9',
+    hint: '定时记录体重可以更好的管理爱宠健康～', full: true,
+    inputType: 'number', fieldLabel: '体重数值', placeholder: '请输入体重',
+    units: ['kg', 'g'], defaultUnit: 'kg', min: 0.01, max: 999, precision: 2, step: 0.1,
+  },
+  {
+    key: 'bcs', label: 'BCS', icon: '📊', color: '#2ec7a0', hint: '体况评分',
+    inputType: 'select', fieldLabel: '体况评分（1–9 分制）', defaultUnit: '分',
+    options: [
+      { value: '1', label: '1 · 极度消瘦' }, { value: '2', label: '2 · 消瘦' },
+      { value: '3', label: '3 · 偏瘦' }, { value: '4', label: '4 · 略瘦' },
+      { value: '5', label: '5 · 理想体态' }, { value: '6', label: '6 · 略超重' },
+      { value: '7', label: '7 · 超重' }, { value: '8', label: '8 · 肥胖' },
+      { value: '9', label: '9 · 极度肥胖' },
+    ],
+  },
+  {
+    key: 'deworming', label: '驱虫', icon: '🐛', color: '#8b6fe8', hint: '建议3个月1次',
+    inputType: 'select', fieldLabel: '驱虫情况', allowCreate: true,
+    options: ['体内驱虫', '体外驱虫', '体内外同驱'], placeholder: '选择或输入驱虫情况',
+  },
+  {
+    key: 'specialPeriod', label: '特殊时期', icon: '📅', color: '#f5a623', hint: '如发情期 / 孕期 / 哺乳期',
+    inputType: 'select', fieldLabel: '当前特殊时期', allowCreate: true,
+    options: ['发情期', '孕期', '哺乳期', '绝育恢复期', '术后恢复期', '无'],
+    placeholder: '选择或输入特殊时期',
+  },
+  {
+    key: 'vaccine', label: '疫苗', icon: '💉', color: '#e858a8', hint: '建议接种疫苗',
+    inputType: 'select', fieldLabel: '疫苗接种情况', allowCreate: true,
+    options: ['狂犬疫苗', '猫三联', '犬四联', '犬六联', '犬八联', '年度加强免疫'],
+    placeholder: '选择或输入疫苗名称',
+  },
+  {
+    key: 'rearingMethod', label: '养育方式', icon: '🏠', color: '#e8604c', hint: '如室内散养 / 笼养等',
+    inputType: 'select', fieldLabel: '养育方式', allowCreate: true,
+    options: ['室内散养', '室内笼养', '室内外结合', '室外饲养', '半散养'],
+    placeholder: '选择或输入养育方式',
+  },
+  {
+    key: 'medicalHistory', label: '病史', icon: '🏥', color: '#29b6d8', hint: '记录既往疾病与用药',
+    inputType: 'textarea', fieldLabel: '既往疾病与用药', placeholder: '请输入既往疾病、治疗或用药情况',
+    maxlength: 500,
+    quickOptions: ['无既往病史', '皮肤过敏', '肠胃疾病', '呼吸道疾病', '泌尿系统疾病', '术后恢复', '长期用药'],
+  },
 ]
 
 // 仅猫 / 狗展示健康信息模块
 const showHealth = computed(() => ['猫', '狗'].includes(current.value?.species))
 
-// 健康项编辑弹窗：点击磁贴或 + 号打开，回填当前值
+// 使用本地时间而不是 UTC，格式与后端 LocalDateTime 的 ISO 入参一致
+const currentRecordTime = () => {
+  const now = new Date()
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+}
+
+const healthOptionValue = (option) => option?.value ?? option
+const healthOptionLabel = (option) => option?.label ?? option
+
+// 健康项编辑弹窗：回填内容、单位和记录时间，兼容没有元数据的旧数据
 const healthDialog = ref(false)
 const healthTarget = ref(null)
 const healthValue = ref('')
+const healthUnit = ref('')
+const healthRecordTime = ref('')
 const savingHealth = ref(false)
 
 const openHealthEdit = (item) => {
   if (!current.value) return
+  const rawValue = current.value[item.key] || ''
+  const meta = current.value.healthMeta?.[item.key] || {}
   healthTarget.value = item
-  healthValue.value = current.value[item.key] || ''
+  healthUnit.value = meta.unit || item.defaultUnit || ''
+  healthRecordTime.value = meta.recordTime || currentRecordTime()
+
+  if (item.inputType === 'number') {
+    const matched = String(rawValue).match(/-?\d+(?:\.\d+)?/)
+    healthValue.value = matched ? Number(matched[0]) : null
+    // 旧版体重可能已包含 g / kg，回填时优先沿用原单位
+    if (!meta.unit) {
+      const legacyValue = String(rawValue).toLowerCase()
+      if (/(?:kg|公斤|千克)/.test(legacyValue)) healthUnit.value = 'kg'
+      else if (/(?:g|克)/.test(legacyValue)) healthUnit.value = 'g'
+    }
+  } else if (item.key === 'bcs') {
+    const matched = String(rawValue).match(/[1-9]/)
+    healthValue.value = matched?.[0] || ''
+  } else {
+    healthValue.value = rawValue
+  }
   healthDialog.value = true
+}
+
+// 病史快捷项采用追加方式，保留用户已经填写的自由文本
+const addHealthQuickOption = (option) => {
+  if (option === '无既往病史') {
+    healthValue.value = option
+    return
+  }
+  const rawValue = String(healthValue.value || '').trim()
+  const existing = rawValue === '无既往病史' ? '' : rawValue
+  if (existing.includes(option)) return
+  const nextValue = existing ? `${existing}；${option}` : option
+  const maxlength = healthTarget.value?.maxlength || 500
+  if (nextValue.length > maxlength) {
+    ElMessage.warning(`病史内容不能超过${maxlength}个字符`)
+    return
+  }
+  healthValue.value = nextValue
 }
 
 const onSaveHealth = async () => {
   if (!current.value || !healthTarget.value || savingHealth.value) return
+  const item = healthTarget.value
+  const value = healthValue.value == null ? '' : String(healthValue.value).trim()
+  if (value && item.inputType === 'number' && (!Number.isFinite(Number(value)) || Number(value) <= 0)) {
+    ElMessage.warning('请输入大于 0 的体重数值')
+    return
+  }
+  if (value && !healthRecordTime.value) {
+    ElMessage.warning('请选择记录时间')
+    return
+  }
   savingHealth.value = true
   try {
-    const data = await updatePetHealth(current.value.id, healthTarget.value.key, healthValue.value)
+    const data = await updatePetHealth(current.value.id, item.key, value, {
+      unit: value ? healthUnit.value || null : null,
+      recordTime: value ? healthRecordTime.value : null,
+    })
     const idx = pets.value.findIndex((p) => String(p.id) === String(data.id))
     if (idx > -1) pets.value[idx] = data
     healthDialog.value = false
@@ -177,7 +278,7 @@ const buildHealthPayload = (pet) => {
   if (agePrecise) payload.ageText = agePrecise
   const health = {}
   for (const item of HEALTH_ITEMS) {
-    const value = pet[item.key]
+    const value = petHealthText(pet, item.key, true)
     if (value) health[item.key] = value
   }
   if (Object.keys(health).length) payload.health = health
@@ -317,7 +418,13 @@ onMounted(async () => {
                 <el-icon class="health-add"><Plus /></el-icon>
               </div>
               <div class="health-value" :class="{ 'health-hint': !current[item.key] }">
-                {{ current[item.key] || item.hint }}
+                {{ petHealthText(current, item.key) || item.hint }}
+              </div>
+              <div
+                v-if="current[item.key] && current.healthMeta?.[item.key]?.recordTime"
+                class="health-record-time"
+              >
+                记录于 {{ healthRecordTimeText(current.healthMeta[item.key].recordTime) }}
               </div>
             </div>
           </div>
@@ -419,16 +526,96 @@ onMounted(async () => {
       </div>
     </el-dialog>
 
-    <!-- 健康信息编辑弹窗 -->
-    <el-dialog v-model="healthDialog" :title="`记录${healthTarget?.label || ''}`" width="420px">
-      <el-input
-        v-model="healthValue"
-        type="textarea"
-        :rows="3"
-        maxlength="500"
-        show-word-limit
-        :placeholder="healthTarget?.hint || '请输入内容'"
-      />
+    <!-- 健康信息编辑弹窗：按类别提供数字、预设选项或快捷病史，并统一记录时间 -->
+    <el-dialog
+      v-model="healthDialog"
+      :title="`记录${healthTarget?.label || ''}`"
+      width="min(500px, calc(100vw - 32px))"
+      align-center
+    >
+      <el-form v-if="healthTarget" label-position="top" class="health-form" @submit.prevent>
+        <el-form-item v-if="healthTarget.inputType === 'number'" :label="healthTarget.fieldLabel">
+          <div class="health-input-row">
+            <el-input-number
+              v-model="healthValue"
+              class="health-main-input health-number-input"
+              :min="healthTarget.min"
+              :max="healthUnit === 'g' ? 999000 : healthTarget.max"
+              :precision="healthTarget.precision"
+              :step="healthUnit === 'g' ? 1 : healthTarget.step"
+              :placeholder="healthTarget.placeholder"
+              controls-position="right"
+            />
+            <el-select v-model="healthUnit" class="health-unit-select" aria-label="体重单位">
+              <el-option
+                v-for="unit in healthTarget.units"
+                :key="unit"
+                :label="unit"
+                :value="unit"
+              />
+            </el-select>
+          </div>
+        </el-form-item>
+
+        <el-form-item v-else-if="healthTarget.inputType === 'select'" :label="healthTarget.fieldLabel">
+          <div class="health-input-row">
+            <el-select
+              v-model="healthValue"
+              class="health-main-input"
+              filterable
+              clearable
+              :allow-create="healthTarget.allowCreate"
+              :default-first-option="healthTarget.allowCreate"
+              :placeholder="healthTarget.placeholder || '请选择'"
+            >
+              <el-option
+                v-for="option in healthTarget.options"
+                :key="healthOptionValue(option)"
+                :label="healthOptionLabel(option)"
+                :value="healthOptionValue(option)"
+              />
+            </el-select>
+            <span v-if="healthTarget.defaultUnit" class="health-fixed-unit">{{ healthTarget.defaultUnit }}</span>
+          </div>
+          <div v-if="healthTarget.allowCreate" class="health-field-tip">
+            可选择常用项，也可以输入自定义内容后按回车创建
+          </div>
+        </el-form-item>
+
+        <el-form-item v-else :label="healthTarget.fieldLabel">
+          <el-input
+            v-model="healthValue"
+            type="textarea"
+            :rows="4"
+            :maxlength="healthTarget.maxlength"
+            show-word-limit
+            :placeholder="healthTarget.placeholder"
+          />
+          <div v-if="healthTarget.quickOptions?.length" class="health-quick-options">
+            <button
+              v-for="option in healthTarget.quickOptions"
+              :key="option"
+              type="button"
+              class="health-quick-option"
+              @click="addHealthQuickOption(option)"
+            >
+              + {{ option }}
+            </button>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="记录时间" required>
+          <el-date-picker
+            v-model="healthRecordTime"
+            type="datetime"
+            class="health-record-picker"
+            format="YYYY-MM-DD HH:mm"
+            value-format="YYYY-MM-DD[T]HH:mm:ss"
+            placeholder="选择记录时间"
+            :clearable="false"
+          />
+        </el-form-item>
+      </el-form>
       <template #footer>
         <el-button @click="healthDialog = false">取消</el-button>
         <el-button type="primary" :loading="savingHealth" @click="onSaveHealth">保存</el-button>
@@ -744,6 +931,79 @@ onMounted(async () => {
 }
 .health-value.health-hint {
   color: var(--pv-text-secondary);
+}
+.health-record-time {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--pv-text-secondary);
+}
+.health-form :deep(.el-form-item) {
+  margin-bottom: 16px;
+}
+.health-form :deep(.el-form-item__label) {
+  padding-bottom: 6px;
+  font-weight: 600;
+  color: var(--pv-text);
+}
+.health-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.health-main-input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.health-number-input :deep(.el-input__inner) {
+  text-align: left;
+}
+.health-unit-select {
+  width: 90px;
+  flex-shrink: 0;
+}
+.health-fixed-unit {
+  flex-shrink: 0;
+  min-width: 28px;
+  font-size: 14px;
+  color: var(--pv-text-secondary);
+}
+.health-field-tip {
+  width: 100%;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--pv-text-secondary);
+}
+.health-record-picker {
+  width: 100%;
+}
+.health-quick-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+}
+.health-quick-option {
+  padding: 4px 10px;
+  border: 1px solid var(--pv-border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--pv-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.health-quick-option:hover,
+.health-quick-option:focus-visible {
+  border-color: var(--pv-ink);
+  background: var(--pv-tint);
+  color: var(--pv-text);
+  outline: none;
 }
 
 /* AI 健康评估卡片 */

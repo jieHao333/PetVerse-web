@@ -30,9 +30,9 @@ export const updatePetProfile = (data) => request.put('/pet/profile', data)
 /** 修改宠物名称（按宠物ID），返回更新后的宠物信息 */
 export const renamePet = (petId, name) => request.put('/pet/rename', { petId, name })
 
-/** 更新宠物健康信息单项（猫/狗身份卡健康模块），category 为类别键，value 空串表示清空，返回更新后的宠物信息 */
-export const updatePetHealth = (petId, category, value) =>
-  request.put('/pet/health', { petId, category, value })
+/** 更新宠物健康信息单项；unit / recordTime 为可选元数据，value 空串表示清空 */
+export const updatePetHealth = (petId, category, value, meta = {}) =>
+  request.put('/pet/health', { petId, category, value, ...meta })
 
 /** 上传宠物头像（真实/虚拟宠物均可，≤2MB，PNG/JPEG/WEBP），返回更新后的宠物信息 */
 export const uploadPetAvatar = (petId, file) => {
