@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import PetDeleteDialog from '@/components/PetDeleteDialog.vue'
@@ -134,27 +134,57 @@ const loadMain = async () => {
 const recommendItems = ref([])
 const recommendSummary = ref('')
 const recommendLoading = ref(false)
+const recommendSlow = ref(false)
+const recommendFailed = ref(false)
+const recommendRequesting = ref(false)
+
+let recommendSlowTimer = null
+
+const clearRecommendSlowTimer = () => {
+  if (recommendSlowTimer) {
+    clearTimeout(recommendSlowTimer)
+    recommendSlowTimer = null
+  }
+}
 
 const loadRecommend = async () => {
-  // SWR：本地缓存命中先渲染（后台刷新期间不转圈），刷新页面即可秒出推荐
+  if (recommendRequesting.value) return
+
+  // SWR：本地缓存命中先渲染（后台刷新期间不转圈），刷新页面即可秒出推荐。
+  // 本地没有缓存时不能直接隐藏整块推荐，否则冷启动的十几秒里用户完全感知不到功能存在。
   const cached = readRecommendCache('home')
   if (cached) {
     recommendItems.value = cached.items
     recommendSummary.value = cached.summary
   }
   recommendLoading.value = !cached
+  recommendSlow.value = false
+  recommendFailed.value = false
+  clearRecommendSlowTimer()
+  if (!cached) {
+    // 首屏生成通常几秒内完成；超过 8 秒才提示“稍慢”，避免正常速度也出现焦虑文案
+    recommendSlowTimer = setTimeout(() => {
+      if (recommendLoading.value) recommendSlow.value = true
+    }, 8000)
+  }
+
+  recommendRequesting.value = true
   try {
     const data = await getRecommendations('home')
     recommendItems.value = data.items || []
     recommendSummary.value = data.summary || ''
     writeRecommendCache('home', data)
   } catch {
-    // 后台刷新失败：已展示的本地缓存内容保留不动；冷启动无缓存时静默降级为空态
-    if (!cached) recommendItems.value = []
+    // 后台刷新失败：已展示的本地缓存内容保留不动；冷启动无缓存时进入可重试的错误态
+    recommendFailed.value = !recommendItems.value.length
   } finally {
     recommendLoading.value = false
+    recommendRequesting.value = false
+    clearRecommendSlowTimer()
   }
 }
+
+onBeforeUnmount(clearRecommendSlowTimer)
 
 // 点击推荐项：新标签页打开 —— 商品进商品详情页，动态进动态详情页（异常缺 id 时退回圈子列表）
 const openRecommend = (item) => {
@@ -318,19 +348,55 @@ const onSignIn = async () => {
         </el-card>
       </template>
 
-      <!-- 为你推荐：AI 结合宠物画像与浏览行为生成（失败/空态自动隐藏） -->
-      <el-card v-if="!loading && recommendItems.length" shadow="never" class="section">
+      <!-- 为你推荐：AI 结合宠物画像与浏览行为生成；加载中、失败和空结果都保持模块可见 -->
+      <el-card
+        v-if="loggedIn && !loading"
+        shadow="never"
+        class="section"
+      >
         <template #header>
           <div class="section-header">
             <span class="card-title">✨ 为你推荐</span>
-            <span v-if="recommendSummary" class="recommend-summary">{{ recommendSummary }}</span>
+            <span
+              v-if="recommendLoading && !recommendItems.length"
+              class="recommend-summary recommend-status"
+              role="status"
+              aria-live="polite"
+            >
+              <span class="recommend-pulse" aria-hidden="true"></span>
+              {{ recommendSlow ? '首次生成稍慢，正在继续…' : 'AI 正在生成推荐' }}
+            </span>
+            <span v-else-if="recommendSummary" class="recommend-summary">{{ recommendSummary }}</span>
           </div>
         </template>
-        <div v-loading="recommendLoading" class="recommend-grid">
+
+        <!-- 冷启动骨架与成品卡片同尺寸，提前占位，避免数据到达后整块内容突然撑开 -->
+        <div
+          v-if="recommendLoading && !recommendItems.length"
+          class="recommend-grid recommend-skeleton-grid"
+          aria-busy="true"
+          aria-label="正在生成个性化推荐"
+        >
+          <div v-for="n in 4" :key="`recommend-skeleton-${n}`" class="recommend-card recommend-skeleton-card">
+            <el-skeleton animated>
+              <template #template>
+                <el-skeleton-item variant="image" class="recommend-skeleton-cover" />
+                <div class="recommend-skeleton-copy">
+                  <el-skeleton-item variant="text" style="width: 84%" />
+                  <el-skeleton-item variant="text" style="width: 58%" />
+                  <el-skeleton-item variant="text" style="width: 38%" />
+                </div>
+              </template>
+            </el-skeleton>
+          </div>
+        </div>
+
+        <div v-else-if="recommendItems.length" class="recommend-grid">
           <div
-            v-for="item in recommendItems"
+            v-for="(item, index) in recommendItems"
             :key="`${item.type}-${item.id}`"
             class="recommend-card"
+            :style="{ animationDelay: `${Math.min(index, 5) * 35}ms` }"
             @click="openRecommend(item)"
           >
             <div class="recommend-cover">
@@ -345,6 +411,38 @@ const onSignIn = async () => {
             <div class="recommend-title">{{ item.title || '—' }}</div>
             <div class="recommend-reason">{{ item.reason }}</div>
             <div v-if="item.type === 'product'" class="recommend-price">¥{{ item.price }}</div>
+          </div>
+        </div>
+
+        <div v-else-if="recommendFailed" class="recommend-state" role="status">
+          <div class="recommend-state-mark is-error" aria-hidden="true">!</div>
+          <div class="recommend-state-copy">
+            <div class="recommend-state-title">推荐暂时没有生成成功</div>
+            <div class="recommend-state-desc">可能是 AI 服务正忙，稍后再试一次。</div>
+          </div>
+          <el-button
+            size="small"
+            round
+            type="primary"
+            plain
+            :loading="recommendRequesting"
+            @click="loadRecommend"
+          >
+            重新生成
+          </el-button>
+        </div>
+
+        <div v-else class="recommend-state" role="status">
+          <div class="recommend-state-mark" aria-hidden="true">AI</div>
+          <div class="recommend-state-copy">
+            <div class="recommend-state-title">还没有合适的推荐</div>
+            <div class="recommend-state-desc">
+              {{ recommendSummary || '先去逛逛商城或社区，我们会根据你的行为继续调整。' }}
+            </div>
+          </div>
+          <div class="recommend-state-actions">
+            <el-button size="small" round type="primary" @click="router.push('/shop')">去逛商城</el-button>
+            <el-button size="small" round plain @click="router.push('/space')">看看社区</el-button>
           </div>
         </div>
       </el-card>
@@ -613,10 +711,55 @@ const onSignIn = async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.recommend-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  max-width: 65%;
+  white-space: normal;
+  text-align: right;
+  line-height: 1.5;
+}
+.recommend-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6b4fd8;
+  animation: pv-recommend-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
 .recommend-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 14px;
+}
+.recommend-skeleton-card {
+  pointer-events: none;
+}
+.recommend-skeleton-card :deep(.el-skeleton) {
+  padding: 0;
+}
+.recommend-skeleton-cover {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  display: block;
+  border-radius: 0;
+}
+.recommend-skeleton-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 12px 16px;
+}
+.recommend-skeleton-copy :deep(.el-skeleton__item) {
+  height: 12px;
+  margin: 0;
+  border-radius: 4px;
+}
+.recommend-grid:not(.recommend-skeleton-grid) .recommend-card {
+  animation: pv-recommend-in 0.28s ease-out backwards;
 }
 .recommend-card {
   border: 1px solid var(--pv-border);
@@ -680,6 +823,79 @@ const onSignIn = async () => {
   font-weight: 700;
   color: #d4380d;
 }
+.recommend-state {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 6px 2px 4px;
+}
+.recommend-state-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #f1eefe;
+  color: #6b4fd8;
+  font-size: 12px;
+  font-weight: 700;
+}
+.recommend-state-mark.is-error {
+  background: #fdf0e9;
+  color: #c45656;
+}
+.recommend-state-copy {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.recommend-state-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--pv-text);
+}
+.recommend-state-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--pv-text-secondary);
+}
+.recommend-state-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+@keyframes pv-recommend-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes pv-recommend-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .recommend-grid:not(.recommend-skeleton-grid) .recommend-card,
+  .recommend-pulse {
+    animation: none !important;
+  }
+}
 @media (max-width: 768px) {
   .hero-banner {
     padding: 22px 20px;
@@ -698,6 +914,20 @@ const onSignIn = async () => {
   /* 窄屏固定两列推荐，比 auto-fill 退化成的单列大图更紧凑 */
   .recommend-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .recommend-status {
+    max-width: 58%;
+  }
+  .recommend-state {
+    align-items: flex-start;
+  }
+  .recommend-state-actions {
+    width: 100%;
+    margin-left: 0;
+    padding-left: 56px;
+  }
+  .recommend-state > .el-button {
+    margin-left: 56px;
   }
 }
 </style>

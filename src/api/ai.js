@@ -385,10 +385,10 @@ export const summarizeProductReviews = (productId) =>
 export const getRecommendations = (scene = 'home', refresh = false) =>
   request.get('/ai/recommend/feed', { params: { scene, refresh }, timeout: 120000 })
 
-/* ---------------- 个性化推荐的本地缓存（SWR：本地旧值秒出 + 后台刷新覆盖） ---------------- */
+/* ---------------- 个性化推荐的本地快照（旧数据占位 + 每次请求校准） ---------------- */
 
-// 本地缓存永久保留：不设置过期时间，确保每次进入页面都有内容可先渲染。
-// 只在新请求成功返回非空推荐时覆盖；请求失败则继续展示旧数据，直到用户清理浏览器站点数据。
+// 本地快照永久保留，仅用于页面首屏先展示旧内容，不能作为最终数据源。
+// 调用方每次进入页面都必须继续请求后端；成功后覆盖快照，失败才继续展示旧数据。
 
 // 缓存键按用户 + 场景隔离（用户 id 取自 localStorage 登录信息，换账号互不可见），未登录时不读写
 // v3：旧键缓存可能残留历史重复数据，提升版本号让本地缓存整体失效一次
@@ -402,8 +402,9 @@ const _recommendCacheKey = (scene) => {
 }
 
 /**
- * 读取本地缓存的推荐结果（{ items, summary, ts }）
- * 无缓存 / 数据残缺时返回 null；缓存不设过期时间，ts 仅记录最近一次刷新时间
+ * 读取本地推荐快照（{ items, summary, ts }）
+ * 只用于立即渲染旧内容；调用方随后必须请求后端校准。
+ * 无快照 / 数据残缺时返回 null；快照不设过期时间，ts 仅记录最近一次成功刷新时间
  */
 export const readRecommendCache = (scene = 'home') => {
   const key = _recommendCacheKey(scene)
@@ -417,7 +418,7 @@ export const readRecommendCache = (scene = 'home') => {
   }
 }
 
-/** 写入本地缓存（只缓存非空结果，永久保留；写失败静默忽略） */
+/** 用后端新结果覆盖本地推荐快照（只缓存非空结果；写失败静默忽略） */
 export const writeRecommendCache = (scene, data) => {
   const key = _recommendCacheKey(scene)
   if (!key || !data?.items?.length) return
