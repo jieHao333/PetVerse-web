@@ -5,7 +5,7 @@ import { ArrowDown, ArrowLeft, Bell, Menu } from '@element-plus/icons-vue'
 import logo from '@/assets/logo.jpg'
 import { NOTIF_SOURCE, getUnreadCount, markRead, pageNotifications } from '@/api/notification'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
-import { isLoggedIn } from '@/utils/auth'
+import { authUser, clearAuth, isLoggedIn } from '@/utils/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,7 +29,9 @@ defineProps({
   showBack: { type: Boolean, default: false },
 })
 
-const user = computed(() => JSON.parse(localStorage.getItem('user') || 'null'))
+// 用户资料取自登录态 store，令牌失效时会立刻变成 null，头像与昵称同步回落为游客入口
+// （旧实现直接读 localStorage，computed 没有任何响应式依赖，值被永久缓存，退出后头像仍挂在右上角）
+const user = computed(() => authUser.value)
 
 // 当前用户角色：USER/MERCHANT/ADMIN，存量用户无 role 时默认 USER
 const role = computed(() => user.value?.role || 'USER')
@@ -75,8 +77,9 @@ const openMySpaces = () => {
 }
 
 const onLogout = () => {
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
+  // 统一走 clearAuth：令牌、用户信息与推荐快照等用户级缓存一起清掉，
+  // 否则换个账号登录还会命中上一个身份的本地快照
+  clearAuth()
   router.push({ name: 'login' })
 }
 
@@ -104,21 +107,23 @@ const loadUnreadCount = async () => {
   }
 }
 
-// 展开弹层时拉取最近若干条通知
+// 展开弹层时拉取最近若干条通知（游客不请求，避免公开页面上触发登录引导）
 const loadRecent = async () => {
+  if (!loggedIn.value) return
   recentLoading.value = true
   try {
     const data = await pageNotifications({ pageNum: 1, pageSize: 8 })
     recentList.value = data.records || []
   } catch (e) {
-    ElMessage.error(e.message)
+    // 登录态中途失效时静默关闭弹层，由下方的登录态监听统一清理
+    if (!e.isAuth) ElMessage.error(e.message)
   } finally {
     recentLoading.value = false
   }
 }
 
 const onBellVisibleChange = (visible) => {
-  if (visible) loadRecent()
+  if (visible && loggedIn.value) loadRecent()
 }
 
 const onOpenNotif = async (item) => {
@@ -159,11 +164,19 @@ const stopPolling = () => {
 }
 
 // 登录态变化时启停轮询；切换路由（如从通知页返回）时刷新未读数
+// 令牌失效会自行清空登录态，这里同时把消息状态复位，红点与弹层不会停留在上一个账号
 watch(
   () => user.value?.id,
   (id) => {
-    if (id) startPolling()
-    else stopPolling()
+    if (id) {
+      startPolling()
+      return
+    }
+    stopPolling()
+    unreadCount.value = 0
+    recentList.value = []
+    recentLoading.value = false
+    bellVisible.value = false
   },
   { immediate: true },
 )

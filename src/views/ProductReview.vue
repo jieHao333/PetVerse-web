@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { getProductDetail, getReviewSummary, pageProductReviews } from '@/api/shop'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
+import { authUser } from '@/utils/auth'
 import {
   deleteProductReview,
   deleteReviewReply,
@@ -136,10 +137,10 @@ const onSubmitReview = async () => {
 
 /* ==================== 修改 / 删除我的评价 ==================== */
 
-// 当前登录用户ID（Long 已序列化为字符串，统一转字符串比较）
-const myId = String(JSON.parse(localStorage.getItem('user') || 'null')?.id || '')
+// 当前登录用户ID（Long 已序列化为字符串，统一转字符串比较），取自响应式登录态
+const myId = computed(() => String(authUser.value?.id || ''))
 
-const isMine = (userId) => String(userId) === myId
+const isMine = (userId) => !!myId.value && String(userId) === myId.value
 
 // 内联编辑我的评价：一次只编辑一条
 const editingId = ref(null)

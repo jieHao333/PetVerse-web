@@ -6,7 +6,7 @@ import { addCartItem, buyNowOrder, deleteReviewReply, getProductDetail, getRevie
 import { queryAvailableCoupons } from '@/api/coupon'
 import { summarizeProductReviews } from '@/api/ai'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
-import { requireLogin } from '@/utils/auth'
+import { requireLogin, authUser } from '@/utils/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -274,9 +274,9 @@ const formatTime = (time) => (time ? String(time).replace('T', ' ').slice(0, 16)
 /* ==================== 评价回复互动（所有登录用户可质询/回复，无需购买过该商品） ==================== */
 
 // 当前登录用户ID（Long 已序列化为字符串，统一转字符串比较），用于判断本人回复可删除
-const myId = String(JSON.parse(localStorage.getItem('user') || 'null')?.id || '')
+const myId = computed(() => String(authUser.value?.id || ''))
 
-const isMine = (userId) => String(userId) === myId
+const isMine = (userId) => !!myId.value && String(userId) === myId.value
 
 // 每条评价独立的回复区状态：展开/列表/分页/输入框/回复对象
 const replyStateMap = ref({})

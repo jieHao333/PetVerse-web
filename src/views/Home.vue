@@ -1,17 +1,19 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import PetDeleteDialog from '@/components/PetDeleteDialog.vue'
 import { getMe } from '@/api/user'
 import { listMyPets, renamePet, signIn } from '@/api/pet'
 import { getRecommendations, readRecommendCache, writeRecommendCache } from '@/api/ai'
-import { isLoggedIn, requireLogin } from '@/utils/auth'
+import { authVersion, isLoggedIn, requireLogin, updateAuthUser } from '@/utils/auth'
 
 const router = useRouter()
 
 // 游客也允许打开首页，但宠物数据依赖登录身份：不请求需要鉴权的接口，
-// 点「添加宠物」时才弹登录引导
+// 点「添加宠物」时才弹登录引导。
+// 这里必须走响应式登录态：令牌过期或 401 清场后，页面要立刻切回游客视图，
+// 否则已渲染的推荐卡片与宠物列表会一直留在页面上（旧实现 computed 读 localStorage，值被永久缓存）
 const loggedIn = computed(() => isLoggedIn())
 
 // 用户名下全部宠物，分真实宠物（纯档案）与虚拟宠物（等级/经验/签到）两类
@@ -120,10 +122,12 @@ onMounted(() => {
 const loadMain = async () => {
   try {
     const me = await getMe()
-    localStorage.setItem('user', JSON.stringify(me))
+    // 走 store 同步资料，顶栏头像/昵称会跟着刷新；登录态失效时 updateAuthUser 会自行忽略
+    updateAuthUser(me)
     await loadPets()
   } catch (e) {
-    ElMessage.error(e.message)
+    // 登录态问题不弹错误提示：首页对游客开放，静默回落为游客视图即可
+    if (!e.isAuth) ElMessage.error(e.message)
   } finally {
     loading.value = false
   }
@@ -148,7 +152,11 @@ const clearRecommendSlowTimer = () => {
 }
 
 const loadRecommend = async () => {
-  if (recommendRequesting.value) return
+  // 游客没有个人画像：既不发请求，也不读上一身份的本地快照
+  if (!loggedIn.value || recommendRequesting.value) return
+
+  // 记下本次请求所属的登录态代次：守卫首页期间若令牌失效，回来的结果必须丢弃，不能回写游客界面
+  const sessionVersion = authVersion.value
 
   // SWR：本地缓存命中先渲染（后台刷新期间不转圈），刷新页面即可秒出推荐。
   // 本地没有缓存时不能直接隐藏整块推荐，否则冷启动的十几秒里用户完全感知不到功能存在。
@@ -171,10 +179,18 @@ const loadRecommend = async () => {
   recommendRequesting.value = true
   try {
     const data = await getRecommendations('home')
+    if (sessionVersion !== authVersion.value || !loggedIn.value) return
     recommendItems.value = data.items || []
     recommendSummary.value = data.summary || ''
     writeRecommendCache('home', data)
-  } catch {
+  } catch (e) {
+    if (e.isAuth) {
+      // 登录态失效：推荐属于个人化数据，旧缓存一并丢弃，交给 resetUserState 收拾残局
+      recommendItems.value = []
+      recommendSummary.value = ''
+      recommendFailed.value = false
+      return
+    }
     // 后台刷新失败：已展示的本地缓存内容保留不动；冷启动无缓存时进入可重试的错误态
     recommendFailed.value = !recommendItems.value.length
   } finally {
@@ -185,6 +201,40 @@ const loadRecommend = async () => {
 }
 
 onBeforeUnmount(clearRecommendSlowTimer)
+
+/**
+ * 登录态失效后复位首页的用户态数据
+ * 首页对游客开放，令牌过期不会跳走页面，只是 login 态变 false；
+ * 若不显式清空，已渲染的宠物列表、推荐卡片、身份相关弹窗都会留在屏幕上，看着像「还登录着」
+ */
+const resetUserState = () => {
+  clearRecommendSlowTimer()
+  pets.value = []
+  loading.value = false
+  recommendItems.value = []
+  recommendSummary.value = ''
+  recommendLoading.value = false
+  recommendSlow.value = false
+  recommendFailed.value = false
+  recommendRequesting.value = false
+  onboardingVisible.value = false
+  renameDialog.value = false
+  renameTarget.value = null
+  deleteDialog.value = false
+  deleteTarget.value = null
+}
+
+// 停留在首页期间登录态失效（令牌过期触发 401、其它标签页退出登录）时立即回落为游客视图；
+// 反向（游客在本页完成登录）则补拉一次数据，避免页面停留在空态
+watch(loggedIn, (value) => {
+  if (!value) {
+    resetUserState()
+    return
+  }
+  loading.value = true
+  loadRecommend()
+  loadMain()
+})
 
 // 点击推荐项：新标签页打开 —— 商品进商品详情页，动态进动态详情页（异常缺 id 时退回圈子列表）
 const openRecommend = (item) => {

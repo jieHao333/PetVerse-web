@@ -1,5 +1,7 @@
 import request from './request'
 import router from '@/router'
+import { clearAuth, currentUser, getToken } from '@/utils/auth'
+import { userScopedKey } from '@/utils/userCache'
 
 /**
  * AI养宠 · 流式对话（SSE）
@@ -60,7 +62,7 @@ export function chatStream({ message, pet, sessionId, attachments, onMeta, onRef
 
     let response
     try {
-      const token = localStorage.getItem('token')
+      const token = getToken()
       response = await fetch('/api/ai/chat/stream', {
         method: 'POST',
         headers: {
@@ -80,11 +82,10 @@ export function chatStream({ message, pet, sessionId, attachments, onMeta, onRef
       clearTimeout(connectTimer)
     }
 
-    // 非 2xx：401 清登录态并带 redirect 跳登录页（与 request.js 行为一致），其余提示服务暂不可用
+    // 非 2xx：401 走 clearAuth 统一清登录态与用户级缓存，再带 redirect 跳登录页，其余提示服务暂不可用
     if (!response.ok) {
       if (response.status === 401) {
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
+        clearAuth()
         router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
         onError?.('登录已失效，请重新登录')
       } else {
@@ -104,9 +105,8 @@ export function chatStream({ message, pet, sessionId, attachments, onMeta, onRef
         // 非 JSON 兑底：按服务暂不可用处理
       }
       if (result?.code === 401) {
-        // 与上方 401 分支保持一致：清登录态并带 redirect 跳登录页
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
+        // 与上方 401 分支保持一致：clearAuth 统一清理后带 redirect 跳登录页
+        clearAuth()
         router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
         onError?.('登录已失效，请重新登录')
       } else {
@@ -313,7 +313,7 @@ export const getKbPreview = (docId) =>
  * @returns {Promise<{ url: string, mime: string }>}
  */
 export async function fetchKbFileUrl(docId) {
-  const token = localStorage.getItem('token')
+  const token = getToken()
   const response = await fetch(`/api/ai/kb/documents/${encodeURIComponent(docId)}/file`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
@@ -378,33 +378,31 @@ export const summarizeProductReviews = (productId) =>
 /**
  * 个性化推荐流
  * 冷启动 / 强制刷新时后端需调用大模型重算，耗时可能超过 axios 默认 10s，故放宽超时
+ * 推荐属于「进页面顺手拉」的后台请求，默认静默：登录态失效时只清状态，不弹登录框打断浏览
  * @param {string} scene home 首页 / shop 商城
  * @param {boolean} refresh 是否跳过缓存强制刷新
  * @returns {Promise<Object>} { items: [{ id, type, title, image, price, reason, score, ... }], summary }
  */
 export const getRecommendations = (scene = 'home', refresh = false) =>
-  request.get('/ai/recommend/feed', { params: { scene, refresh }, timeout: 120000 })
+  request.get('/ai/recommend/feed', {
+    params: { scene, refresh },
+    timeout: 120000,
+    silentAuth: true,
+  })
 
 /* ---------------- 个性化推荐的本地快照（旧数据占位 + 每次请求校准） ---------------- */
 
-// 本地快照永久保留，仅用于页面首屏先展示旧内容，不能作为最终数据源。
+// 本地快照只用于页面首屏先展示旧内容，不能作为最终数据源。
 // 调用方每次进入页面都必须继续请求后端；成功后覆盖快照，失败才继续展示旧数据。
+// 快照属于当前登录用户的个人化数据，统一放在 pv:user:<uid>: 命名空间下：
+// 未登录时读写一律跳过，登录态失效时由 clearAuth 按前缀整体清除（见 utils/userCache.js）
 
-// 缓存键按用户 + 场景隔离（用户 id 取自 localStorage 登录信息，换账号互不可见），未登录时不读写
-// v3：旧键缓存可能残留历史重复数据，提升版本号让本地缓存整体失效一次
-const _recommendCacheKey = (scene) => {
-  try {
-    const uid = JSON.parse(localStorage.getItem('user') || 'null')?.id
-    return uid != null ? `pv:recommend:v3:${scene}:${uid}` : ''
-  } catch {
-    return ''
-  }
-}
+const _recommendCacheKey = (scene) => userScopedKey(currentUser()?.id, 'recommend', scene)
 
 /**
  * 读取本地推荐快照（{ items, summary, ts }）
  * 只用于立即渲染旧内容；调用方随后必须请求后端校准。
- * 无快照 / 数据残缺时返回 null；快照不设过期时间，ts 仅记录最近一次成功刷新时间
+ * 无快照 / 未登录 / 数据残缺时返回 null；快照不设过期时间，ts 仅记录最近一次成功刷新时间
  */
 export const readRecommendCache = (scene = 'home') => {
   const key = _recommendCacheKey(scene)
@@ -418,7 +416,7 @@ export const readRecommendCache = (scene = 'home') => {
   }
 }
 
-/** 用后端新结果覆盖本地推荐快照（只缓存非空结果；写失败静默忽略） */
+/** 用后端新结果覆盖本地推荐快照（只缓存非空结果；未登录或写失败静默忽略） */
 export const writeRecommendCache = (scene, data) => {
   const key = _recommendCacheKey(scene)
   if (!key || !data?.items?.length) return

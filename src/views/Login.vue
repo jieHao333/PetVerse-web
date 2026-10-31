@@ -3,7 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Lock, User } from '@element-plus/icons-vue'
 import { login } from '@/api/user'
-import { safeRedirect } from '@/utils/auth'
+import { safeRedirect, setAuth } from '@/utils/auth'
 import logo from '@/assets/logo.jpg'
 
 const route = useRoute()
@@ -27,8 +27,8 @@ const onSubmit = async () => {
   loading.value = true
   try {
     const data = await login(form)
-    localStorage.setItem('token', data.token)
-    localStorage.setItem('user', JSON.stringify(data.user))
+    // 统一写入登录态 store：顶栏头像、首页推荐等订阅方会立即刷新
+    setAuth(data.token, data.user)
     ElMessage.success('登录成功')
     // 被游客拦截带到登录页时带 redirect，登录成功后回跳操作前那一页
     router.replace(safeRedirect(route.query.redirect) || { name: 'home' })

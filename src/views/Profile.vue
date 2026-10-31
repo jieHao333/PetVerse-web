@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { Camera } from '@element-plus/icons-vue'
 import { getMe, updateUser, uploadAvatar } from '@/api/user'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
+import { updateAuthUser } from '@/utils/auth'
 
 const user = ref(null)
 const profileForm = reactive({ nickname: '', avatar: '' })
@@ -20,7 +21,8 @@ const onUploadAvatar = async ({ file }) => {
   try {
     user.value = await uploadAvatar(file)
     profileForm.avatar = user.value.avatar || ''
-    localStorage.setItem('user', JSON.stringify(user.value))
+    // 同步登录态 store，顶栏头像随上传结果即时刷新
+    updateAuthUser(user.value)
     ElMessage.success('头像已更新')
   } catch (e) {
     ElMessage.error(e.message)
@@ -49,7 +51,7 @@ const onSaveProfile = async () => {
     await updateUser({ nickname: profileForm.nickname, avatar: profileForm.avatar })
     const me = await getMe()
     user.value = me
-    localStorage.setItem('user', JSON.stringify(me))
+    updateAuthUser(me)
     ElMessage.success('资料已保存')
   } catch (e) {
     ElMessage.error(e.message)

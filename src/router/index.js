@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { confirmLogin, getToken, safeRedirect } from '@/utils/auth'
+import { clearAuth, confirmLogin, currentUser, getToken, isTokenExpired, safeRedirect } from '@/utils/auth'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -121,12 +121,18 @@ const router = createRouter({
 // 游客可免登录浏览首页、圈子与商城（meta.public），进入其他页面才提示登录并记录回跳地址；
 // 角色不足回首页。未登录跳登录页时带 redirect，登录成功后回到操作前那一页
 router.beforeEach(async (to, from) => {
+  // 导航前先本地校验令牌有效期：过期即按游客处理，不必等页面里某个请求 401 回来才纠正
+  // （那段时间页面仍按已登录渲染，用户还会被推荐、轮询这些后台请求的 401 弹框打断）
+  const token = getToken()
+  if (token && isTokenExpired(token)) {
+    clearAuth()
+  }
   if (getToken()) {
     if (to.name === 'login' || to.name === 'register') {
       return safeRedirect(to.query.redirect) || { name: 'home' }
     }
     if (to.meta.roles) {
-      const user = JSON.parse(localStorage.getItem('user') || 'null')
+      const user = currentUser()
       if (!to.meta.roles.includes(user?.role || 'USER')) {
         return { name: 'home' }
       }

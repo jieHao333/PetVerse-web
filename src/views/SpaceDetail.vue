@@ -5,7 +5,7 @@ import { Star, StarFilled } from '@element-plus/icons-vue'
 import { deleteSpace, getSpaceDetail } from '@/api/space'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
 import { splitTopics } from '@/utils/topic'
-import { requireLogin } from '@/utils/auth'
+import { requireLogin, authUser } from '@/utils/auth'
 import {
   COMMENT_TARGET_SPACE,
   LIKE_TARGET_SPACE,
@@ -21,8 +21,9 @@ const router = useRouter()
 const spaceId = ref(route.params.id)
 
 // 当前登录用户ID，仅本人动态展示删除入口
-const myId = String(JSON.parse(localStorage.getItem('user') || 'null')?.id || '')
-const isMine = (userId) => String(userId) === myId
+// 当前登录用户ID（响应式），令牌失效后不再展示本人专属的编辑/删除入口
+const myId = computed(() => String(authUser.value?.id || ''))
+const isMine = (userId) => !!myId.value && String(userId) === myId.value
 
 const space = ref(null)
 const loading = ref(true)
@@ -276,7 +277,7 @@ const previewImages = computed(() =>
 
 const previewIndex = (media) => previewImages.value.indexOf(media.url)
 
-const isMySpace = computed(() => space.value && String(space.value.userId) === myId)
+const isMySpace = computed(() => !!space.value && !!myId.value && String(space.value.userId) === myId.value)
 
 // 加载动态详情与评论；路由参数变化时（同标签页切换动态）重置状态重新加载
 const loadAll = async () => {

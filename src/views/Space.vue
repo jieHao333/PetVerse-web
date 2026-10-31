@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { CircleClose, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import { deleteSpace, getSpacePage, saveSpace, updateSpace, uploadSpaceMedia } from '@/api/space'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
-import { requireLogin } from '@/utils/auth'
+import { requireLogin, authUser } from '@/utils/auth'
 import { MAX_TOPICS, splitTopics } from '@/utils/topic'
 import {
   COMMENT_TARGET_SPACE,
@@ -27,9 +27,10 @@ const category = ref(route.params.category || '')
 const topicMode = computed(() => !!route.params.category)
 const loading = ref(false)
 
-// 当前登录用户ID，仅本人动态展示编辑/删除入口
-const myId = String(JSON.parse(localStorage.getItem('user') || 'null')?.id || '')
-const isMySpace = (item) => String(item.userId) === myId
+// 当前登录用户ID，仅本人动态展示编辑/删除入口。
+// 取自响应式登录态：令牌失效后 myId 变空，不会再把上一个身份的动态当成「我的」
+const myId = computed(() => String(authUser.value?.id || ''))
+const isMySpace = (item) => !!myId.value && String(item.userId) === myId.value
 
 // 媒体规格（与后端保持一致）：图片≤5MB，视频(mp4)≤50MB，单条最多9个
 const MAX_MEDIA_COUNT = 9

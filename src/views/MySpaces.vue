@@ -1,14 +1,16 @@
 <script setup>
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search } from '@element-plus/icons-vue'
 import { getSpacePage } from '@/api/space'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
+import { authUser } from '@/utils/auth'
 import { splitTopics } from '@/utils/topic'
 
 const router = useRouter()
 
-const me = JSON.parse(localStorage.getItem('user') || 'null')
+// 当前用户资料取自响应式登录态，令牌失效后头像与昵称不会停留在旧身份
+const me = computed(() => authUser.value)
 
 const spaces = ref([])
 
@@ -29,7 +31,7 @@ const loadMoreSpaces = async () => {
   loadingMore.value = true
   try {
     const page = await getSpacePage({
-      userId: me?.id,
+      userId: me.value?.id,
       pageNum: pageNum.value,
       pageSize: SPACE_PAGE_SIZE,
       // 我的动态固定按发布时间倒序（最新在最上面），不参与圈子的综合热度排序

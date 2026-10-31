@@ -1,12 +1,15 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, ShoppingCart } from '@element-plus/icons-vue'
 import { pageProducts } from '@/api/shop'
 import { getRecommendations, readRecommendCache, writeRecommendCache } from '@/api/ai'
-import { isLoggedIn, requireLogin } from '@/utils/auth'
+import { authVersion, isLoggedIn, requireLogin } from '@/utils/auth'
 
 const router = useRouter()
+
+// 登录态走响应式 store：令牌失效后「猜你喜欢」需要立刻消失，不能让旧身份的个人化数据留在页面上
+const loggedIn = computed(() => isLoggedIn())
 
 const products = ref([])
 const total = ref(0)
@@ -47,8 +50,9 @@ const loadProducts = async () => {
 
 onMounted(() => {
   loadProducts()
-  // 「猜你喜欢」依赖个人画像走 ai-service，游客不请求，避免一进商城就被 401 弹登录
-  if (isLoggedIn()) loadRecommend()
+  // 「猜你喜欢」依赖个人画像走 ai-service，游客不请求：推荐接口不在网关 public-get-paths 里，
+  // 带着过期令牌去请求必然 401，进商城就被弹登录框
+  if (loggedIn.value) loadRecommend()
 })
 
 /* ==================== 猜你喜欢（LangGraph 个性化推荐） ==================== */
@@ -56,7 +60,25 @@ onMounted(() => {
 const recommendItems = ref([])
 const recommendLoading = ref(false)
 
+const resetRecommend = () => {
+  recommendItems.value = []
+  recommendLoading.value = false
+}
+
+// 停留期间登录态失效 → 清掉个人化推荐；重新登录 → 补拉一次
+watch(loggedIn, (value) => {
+  if (value) {
+    loadRecommend()
+    return
+  }
+  resetRecommend()
+})
+
 const loadRecommend = async () => {
+  if (!loggedIn.value) return
+  // 记录请求所属的登录态代次，身份变化后回来的结果不能写进游客界面
+  const sessionVersion = authVersion.value
+
   // SWR：本地缓存命中先渲染（后台刷新期间不转圈），进页面即可秒出推荐；
   // 缓存按场景隔离在 api/ai.js 内部，这里存取的都是过滤后的商品类结果
   const cached = readRecommendCache('shop')
@@ -66,11 +88,16 @@ const loadRecommend = async () => {
   recommendLoading.value = !cached
   try {
     const data = await getRecommendations('shop')
+    if (sessionVersion !== authVersion.value || !loggedIn.value) return
     // 商城场景只保留商品类推荐
     const items = (data.items || []).filter((i) => i.type === 'product')
     recommendItems.value = items
     writeRecommendCache('shop', { items, summary: data.summary })
-  } catch {
+  } catch (e) {
+    if (e.isAuth) {
+      resetRecommend()
+      return
+    }
     // 后台刷新失败：已展示的本地缓存内容保留不动；冷启动无缓存时静默降级为空态
     if (!cached) recommendItems.value = []
   } finally {

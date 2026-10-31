@@ -3,7 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Lock, User } from '@element-plus/icons-vue'
 import { register } from '@/api/user'
-import { safeRedirect } from '@/utils/auth'
+import { safeRedirect, setAuth } from '@/utils/auth'
 import logo from '@/assets/logo.jpg'
 
 const route = useRoute()
@@ -48,8 +48,8 @@ const onSubmit = async () => {
       password: form.password,
       nickname: form.nickname || undefined,
     })
-    localStorage.setItem('token', data.token)
-    localStorage.setItem('user', JSON.stringify(data.user))
+    // 注册即登录：统一写入登录态 store
+    setAuth(data.token, data.user)
     ElMessage.success('注册成功，欢迎加入 PetVerse')
     // 注册即自动登录，同样回到游客被拦截前那一页
     router.replace(safeRedirect(route.query.redirect) || { name: 'home' })

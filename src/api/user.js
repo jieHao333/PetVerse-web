@@ -6,8 +6,11 @@ export const register = (data) => request.post('/user/register', data)
 /** 用户登录 */
 export const login = (data) => request.post('/user/login', data)
 
-/** 获取当前登录用户信息 */
-export const getMe = () => request.get('/user/me')
+/**
+ * 获取当前登录用户信息
+ * @param {Object} [config] 透传给 axios 的配置；应用启动时的登录态探活传 { silentAuth: true }
+ */
+export const getMe = (config) => request.get('/user/me', config)
 
 /** 根据ID查询用户信息（用户主页） */
 export const getUserById = (id) => request.get(`/user/${id}`)
