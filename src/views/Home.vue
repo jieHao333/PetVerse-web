@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import PetDeleteDialog from '@/components/PetDeleteDialog.vue'
+import recommendCover from '@/assets/recommend-default-cover.jpg'
 import { getMe } from '@/api/user'
 import { listMyPets, renamePet, signIn } from '@/api/pet'
 import { getRecommendations, readRecommendCache, writeRecommendCache } from '@/api/ai'
@@ -236,6 +237,20 @@ watch(loggedIn, (value) => {
   loadMain()
 })
 
+/**
+ * 推荐卡片封面
+ * 动态：后端已按「第一张图片」回填 image；没有图片（纯文字 / 纯视频动态）与前端的旧快照
+ * 一律回退到统一的默认封面，避免出现空白或 emoji 占位导致的观感断层
+ * 商品：沿用商品主图，缺图时同样用默认封面兜底，保证同一行卡片观感一致
+ */
+const coverOf = (item) => item?.image || recommendCover
+
+/** 动态卡片的点赞文案：0 赞时不显示干巴巴的「0 人点赞」，换成更有互动感的话术 */
+const likeText = (item) => {
+  const count = Number(item?.likeCount || 0)
+  return count > 0 ? `${count} 人点赞` : '等你来点赞'
+}
+
 // 点击推荐项：新标签页打开 —— 商品进商品详情页，动态进动态详情页（异常缺 id 时退回圈子列表）
 const openRecommend = (item) => {
   if (item.type === 'product') {
@@ -450,17 +465,28 @@ const onSignIn = async () => {
             @click="openRecommend(item)"
           >
             <div class="recommend-cover">
-              <el-image v-if="item.image" :src="item.image" fit="cover" class="recommend-img">
-                <template #error><div class="recommend-ph">{{ item.type === 'product' ? '🛍️' : '🐾' }}</div></template>
+              <!-- 封面统一走 coverOf：动态取第一张图片、无图用默认封面，商品沿用主图 -->
+              <el-image :src="coverOf(item)" fit="cover" lazy class="recommend-img">
+                <template #placeholder>
+                  <div class="recommend-img recommend-img-loading"></div>
+                </template>
+                <template #error>
+                  <img :src="recommendCover" alt="" class="recommend-img" />
+                </template>
               </el-image>
-              <div v-else class="recommend-ph">{{ item.type === 'product' ? '🛍️' : '🐾' }}</div>
               <el-tag size="small" effect="dark" class="recommend-type">
                 {{ item.type === 'product' ? '好物' : '动态' }}
               </el-tag>
             </div>
-            <div class="recommend-title">{{ item.title || '—' }}</div>
-            <div class="recommend-reason">{{ item.reason }}</div>
-            <div v-if="item.type === 'product'" class="recommend-price">¥{{ item.price }}</div>
+            <div class="recommend-body">
+              <div class="recommend-title">{{ item.title || '—' }}</div>
+              <div class="recommend-reason">{{ item.reason }}</div>
+              <!-- 底部信息条：商品放价格、动态放点赞数，两者等高，整行卡片底部对齐 -->
+              <div class="recommend-foot">
+                <span v-if="item.type === 'product'" class="recommend-price">¥{{ item.price }}</span>
+                <span v-else class="recommend-like">{{ likeText(item) }}</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -781,8 +807,9 @@ const onSignIn = async () => {
 }
 .recommend-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 14px;
+  /* 卡片宽度下限定在 180px：配合 4:3 封面，缩略图不会小到看不清内容 */
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
 }
 .recommend-skeleton-card {
   pointer-events: none;
@@ -793,7 +820,8 @@ const onSignIn = async () => {
 .recommend-skeleton-cover {
   width: 100%;
   height: auto;
-  aspect-ratio: 1 / 1;
+  /* 与真实封面同为 4:3，骨架屏占位尺寸和成品完全一致，数据到达时不会跳动 */
+  aspect-ratio: 4 / 3;
   display: block;
   border-radius: 0;
 }
@@ -812,66 +840,112 @@ const onSignIn = async () => {
   animation: pv-recommend-in 0.28s ease-out backwards;
 }
 .recommend-card {
+  display: flex;
+  flex-direction: column;
+  /* 高度撑满格子：同一行里各卡片等高，封面、正文、底部信息条纵向对齐 */
+  height: 100%;
   border: 1px solid var(--pv-border);
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
   background: #fff;
   cursor: pointer;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
 }
 .recommend-card:hover {
+  border-color: #dcdad4;
   box-shadow: var(--pv-shadow);
   transform: translateY(-2px);
 }
 .recommend-cover {
   position: relative;
   width: 100%;
-  aspect-ratio: 1 / 1;
-  background: #f6f5f2;
+  /* 统一 4:3 展示比例：无论原图横竖、大小，一律 cover 裁切，卡片观感整齐 */
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: var(--pv-tint);
+  /* 卡片被同行更高的卡片撑高时，封面保持自身比例不被压缩 */
+  flex-shrink: 0;
 }
 .recommend-img {
   width: 100%;
   height: 100%;
+  display: block;
+  /* el-image 根节点与懒加载占位都套用同一尺寸，避免加载瞬间高度塌陷 */
+  object-fit: cover;
+  transition: transform 0.35s ease;
 }
-.recommend-ph {
-  width: 100%;
-  height: 100%;
+/* 悬停时封面轻微推近，弱化静态缩略图的呆板感；位移只发生在容器内，不撑破圆角 */
+.recommend-card:hover .recommend-img {
+  transform: scale(1.04);
+}
+.recommend-img-loading {
+  background: linear-gradient(100deg, var(--pv-tint) 30%, #fbfbf9 50%, var(--pv-tint) 70%);
+  background-size: 220% 100%;
+  animation: pv-cover-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes pv-cover-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -20% 0;
+  }
+}
+.recommend-body {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 40px;
-  color: var(--pv-text-secondary);
+  flex-direction: column;
+  flex: 1;
+  padding: 10px 12px 12px;
 }
 .recommend-type {
   position: absolute;
   top: 8px;
   left: 8px;
+  /* 缩略图色彩不可控，标签加一层半透明底保证任何封面上都清晰可读 */
+  background: rgba(23, 24, 28, 0.72);
+  border-color: transparent;
+  backdrop-filter: blur(6px);
 }
 .recommend-title {
-  padding: 10px 12px 0;
   font-size: 14px;
   font-weight: 600;
+  line-height: 20px;
+  /* 固定两行高度：标题一行还是两行，卡片总高都不变 */
+  min-height: 40px;
   color: var(--pv-text);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 38px;
 }
 .recommend-reason {
-  padding: 6px 12px 0;
+  margin-top: 4px;
   font-size: 12px;
+  line-height: 16px;
+  /* 同样锁两行，长理由省略，避免长短不一撑歪排版 */
+  min-height: 32px;
   color: #6b4fd8;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.recommend-foot {
+  /* 底部信息条贴住卡片底边，商品价格与动态点赞数同高，整行底边对齐 */
+  margin-top: auto;
+  padding-top: 8px;
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+}
 .recommend-price {
-  padding: 6px 12px 12px;
   font-size: 15px;
   font-weight: 700;
   color: #d4380d;
+}
+.recommend-like {
+  font-size: 12px;
+  color: var(--pv-text-secondary);
 }
 .recommend-state {
   display: flex;
@@ -942,8 +1016,12 @@ const onSignIn = async () => {
 }
 @media (prefers-reduced-motion: reduce) {
   .recommend-grid:not(.recommend-skeleton-grid) .recommend-card,
+  .recommend-img-loading,
   .recommend-pulse {
     animation: none !important;
+  }
+  .recommend-card:hover .recommend-img {
+    transform: none;
   }
 }
 @media (max-width: 768px) {
