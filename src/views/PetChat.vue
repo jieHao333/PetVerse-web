@@ -115,7 +115,53 @@ const messages = ref([])
 const inputText = ref('') // 输入框内容
 const sending = ref(false) // 是否正在流式生成中
 const scrollbarRef = ref(null) // 消息区 el-scrollbar 实例
+const inputRef = ref(null) // 输入框实例：点推荐问题后把焦点交还给它
 let streamCtrl = null // 当前流式请求控制器（{ abort }）
+
+/**
+ * 消息分组视图：相邻同角色、且间隔小于 5 分钟的消息并为一组。
+ * 组内间距收紧、换角色时拉开；AI 头像与「顾问名 + 时间」只在组首出现，
+ * 用户侧时间只在组尾出现——长对话里不会每行都重复同一套信息。
+ */
+const GROUP_GAP_SEC = 5 * 60
+const messageViews = computed(() =>
+  messages.value.map((msg, idx) => {
+    const prev = messages.value[idx - 1]
+    const next = messages.value[idx + 1]
+    const samePrev =
+      !!prev &&
+      prev.role === msg.role &&
+      Math.abs((msg.ts || 0) - (prev.ts || 0)) < GROUP_GAP_SEC
+    const sameNext =
+      !!next &&
+      next.role === msg.role &&
+      Math.abs((next.ts || 0) - (msg.ts || 0)) < GROUP_GAP_SEC
+    return { msg, idx, groupStart: !samePrev, groupEnd: !sameNext }
+  }),
+)
+
+// 窄屏判定：手机上的输入框只有 200px 出头，长占位文案会撑成三行，换成短句
+const narrowMq = window.matchMedia('(max-width: 768px)')
+const isNarrow = ref(narrowMq.matches)
+const onNarrowChange = (e) => {
+  isNarrow.value = e.matches
+}
+narrowMq.addEventListener('change', onNarrowChange)
+onUnmounted(() => narrowMq.removeEventListener('change', onNarrowChange))
+
+// 空会话推荐问题：点一下填进输入框，省得用户对着空白框不知道从哪问起
+const QUICK_PROMPTS = ['日常喂养要注意什么', '多久驱虫和打疫苗', '最近有点挑食怎么办']
+const usePrompt = (q) => {
+  inputText.value = q
+  nextTick(() => inputRef.value?.focus())
+}
+
+// 输入框占位：桌面写全信息，窄屏只留最短的一句
+const inputPlaceholder = computed(() =>
+  isNarrow.value
+    ? `咨询 ${pet.value?.name || '它'} 的健康问题…`
+    : `咨询 ${pet.value?.name || '它'} 的健康、习性等问题，也可以直接发送照片 / 语音...`,
+)
 
 // ---------- 待发送附件（选择后立即上传，发送时一并携带） ----------
 // pendingFiles 项：{ id, kind, name, size, previewUrl, uploading, failed, att }
@@ -213,7 +259,10 @@ const isSessionActive = (s) => currentSessionId.value != null && Number(s.id) ==
 // 新消息上屏 / 流式追加时把消息区滚到底部
 const scrollToBottom = async () => {
   await nextTick()
-  scrollbarRef.value?.setScrollTop?.(999999)
+  const toBottom = () => scrollbarRef.value?.setScrollTop?.(999999)
+  toBottom()
+  // 富文本与图片渲染会改变内容高度，等一帧再补一次，避免停在"差一屏"的位置
+  requestAnimationFrame(toBottom)
 }
 
 // 结束一次流式交互：恢复输入态并停在最新消息
@@ -758,9 +807,13 @@ const onEnterKey = (e) => {
           <div class="chat-main">
             <!-- 顶部宠物信息条 -->
             <div class="chat-topbar">
-              <el-avatar :size="44" :src="pet.imageUrl || ''" class="pet-avatar">
-                {{ (pet.name || '宠')[0] }}
-              </el-avatar>
+              <div class="pet-avatar-wrap">
+                <el-avatar :size="44" :src="pet.imageUrl || ''" class="pet-avatar">
+                  {{ (pet.name || '宠')[0] }}
+                </el-avatar>
+                <!-- 可用状态点：纯装饰，表示顾问随时可以咨询 -->
+                <span class="pet-online" aria-hidden="true"></span>
+              </div>
               <div class="pet-brief">
                 <div class="name-row">
                   <span class="pet-name">{{ pet.name }}</span>
@@ -769,7 +822,7 @@ const onEnterKey = (e) => {
                     Lv.{{ pet.level }}
                   </el-tag>
                 </div>
-                <p class="pet-sub">AI 养宠顾问 · 咨询 {{ pet.name }} 的健康与习性</p>
+                <p class="pet-sub">AI 养宠顾问 · 健康、喂养、行为问题随时问</p>
               </div>
 
               <!-- 手机端：咨询对象 + 会话记录收进右上角弹层，页面主体直接展示对话 -->
@@ -867,36 +920,60 @@ const onEnterKey = (e) => {
             <div class="chat-body">
               <el-skeleton v-if="loadingHistory" :rows="5" animated class="history-skeleton" />
               <el-scrollbar v-else ref="scrollbarRef" class="msg-scroll">
-                <!-- 空会话欢迎占位 -->
+                <!-- 空会话欢迎占位：头像 + 引导文案 + 推荐问题 -->
                 <div v-if="!messages.length" class="empty-talk">
-                  <el-avatar :size="72" :src="pet.imageUrl || ''" class="empty-avatar">
+                  <el-avatar :size="76" :src="pet.imageUrl || ''" class="empty-avatar">
                     {{ (pet.name || '宠')[0] }}
                   </el-avatar>
                   <p class="empty-title">开始一段新的咨询</p>
                   <p class="empty-sub">
                     向 AI 养宠顾问咨询 {{ pet.name }} 的健康、习性、喂养等问题吧
                   </p>
+                  <div class="empty-suggests">
+                    <button
+                      v-for="q in QUICK_PROMPTS"
+                      :key="q"
+                      type="button"
+                      class="suggest-chip"
+                      @click="usePrompt(q)"
+                    >
+                      {{ q }}
+                    </button>
+                  </div>
                 </div>
 
-                <!-- 消息气泡 -->
+                <!-- 消息气泡：按角色分组，组首给身份与时间，组尾给用户侧时间 -->
                 <div
-                  v-for="(msg, idx) in messages"
-                  :key="idx"
+                  v-for="view in messageViews"
+                  :key="view.idx"
                   class="msg-row"
-                  :class="msg.role === 'user' ? 'mine' : 'ai'"
+                  :class="[
+                    view.msg.role === 'user' ? 'mine' : 'ai',
+                    { 'group-start': view.groupStart, 'group-end': view.groupEnd },
+                  ]"
                 >
-                  <el-avatar
-                    v-if="msg.role === 'assistant'"
-                    :size="34"
-                    :src="msgPet(msg)?.imageUrl || ''"
-                    class="msg-avatar"
-                  >
-                    {{ (msgPet(msg)?.name || '宠')[0] }}
-                  </el-avatar>
+                  <!-- AI 头像：只在组首出现，其余行用等宽占位保持气泡左对齐 -->
+                  <div v-if="view.msg.role === 'assistant'" class="msg-avatar-slot">
+                    <div v-if="view.groupStart" class="msg-avatar-wrap">
+                      <el-avatar
+                        :size="34"
+                        :src="msgPet(view.msg)?.imageUrl || ''"
+                        class="msg-avatar"
+                      >
+                        {{ (msgPet(view.msg)?.name || '宠')[0] }}
+                      </el-avatar>
+                      <span class="msg-avatar-badge" aria-hidden="true">AI</span>
+                    </div>
+                  </div>
                   <div class="bubble-col">
-                    <div class="bubble" :class="{ thinking: msg.thinking, failed: msg.failed }">
+                    <!-- 顾问身份行：只在组首出现，避免长回答下方重复同一行信息 -->
+                    <div v-if="view.msg.role === 'assistant' && view.groupStart" class="msg-meta">
+                      <span class="msg-role">AI 养宠顾问</span>
+                      <span v-if="view.msg.ts" class="msg-time">{{ formatMsgTime(view.msg.ts) }}</span>
+                    </div>
+                    <div class="bubble" :class="{ thinking: view.msg.thinking, failed: view.msg.failed }">
                       <!-- 思考中：三个跳动圆点 -->
-                      <template v-if="msg.thinking">
+                      <template v-if="view.msg.thinking">
                         <span class="dot"></span>
                         <span class="dot"></span>
                         <span class="dot"></span>
@@ -904,10 +981,10 @@ const onEnterKey = (e) => {
                       <template v-else>
                         <!-- 用户消息的多模态附件：图片（点击放大）/ 视频 / 音频（含转写文本） -->
                         <div
-                          v-if="msg.role === 'user' && msg.attachments?.length"
+                          v-if="view.msg.role === 'user' && view.msg.attachments?.length"
                           class="bubble-media"
                         >
-                          <template v-for="(att, aIdx) in msg.attachments" :key="aIdx">
+                          <template v-for="(att, aIdx) in view.msg.attachments" :key="aIdx">
                             <el-image
                               v-if="att.type === 'image'"
                               :src="att.url"
@@ -933,27 +1010,27 @@ const onEnterKey = (e) => {
                             </div>
                           </template>
                         </div>
-                        <span v-if="msg.content && msg.role === 'user'" class="bubble-text">{{ msg.content }}</span>
+                        <span v-if="view.msg.content && view.msg.role === 'user'" class="bubble-text">{{ view.msg.content }}</span>
                         <!-- eslint-disable-next-line vue/no-v-html -- 内容已过 DOMPurify -->
-                        <div v-else-if="msg.content" class="bubble-md" v-html="renderMd(msg.content)"></div>
-                        <span v-if="msg.stopped" class="stop-mark">（已停止）</span>
-                        <span v-if="msg.error" class="err-mark">{{ msg.error }}</span>
+                        <div v-else-if="view.msg.content" class="bubble-md" v-html="renderMd(view.msg.content)"></div>
+                        <span v-if="view.msg.stopped" class="stop-mark">（已停止）</span>
+                        <span v-if="view.msg.error" class="err-mark">{{ view.msg.error }}</span>
                       </template>
                     </div>
                     <!-- RAG 引用来源：这条回答依据的知识库文档（文档名 / 类型 / 小节 / 相关度） -->
                     <div
-                      v-if="msg.role === 'assistant' && !msg.thinking && msg.refs?.length"
+                      v-if="view.msg.role === 'assistant' && !view.msg.thinking && view.msg.refs?.length"
                       class="refs"
                     >
-                      <button type="button" class="refs-toggle" @click="toggleRefs(idx)">
+                      <button type="button" class="refs-toggle" @click="toggleRefs(view.idx)">
                         <el-icon><Collection /></el-icon>
-                        <span>参考来源 {{ msg.refs.length }} 篇</span>
-                        <el-icon class="refs-arrow" :class="{ open: openedRefs.has(idx) }">
+                        <span>参考来源 {{ view.msg.refs.length }} 篇</span>
+                        <el-icon class="refs-arrow" :class="{ open: openedRefs.has(view.idx) }">
                           <ArrowDown />
                         </el-icon>
                       </button>
-                      <div v-show="openedRefs.has(idx)" class="refs-list">
-                        <div v-for="r in msg.refs" :key="r.rank" class="ref-item">
+                      <div v-show="openedRefs.has(view.idx)" class="refs-list">
+                        <div v-for="r in view.msg.refs" :key="r.rank" class="ref-item">
                           <span class="ref-rank">[{{ r.rank }}]</span>
                           <div class="ref-main">
                             <div class="ref-head">
@@ -973,13 +1050,17 @@ const onEnterKey = (e) => {
                     </div>
                     <!-- 失败气泡：一键重新生成本轮回复 -->
                     <el-button
-                      v-if="msg.failed && !sending"
+                      v-if="view.msg.failed && !sending"
                       size="small"
                       round
                       class="regen-btn"
-                      @click="regenerate(idx)"
+                      @click="regenerate(view.idx)"
                     >重新生成</el-button>
-                    <span v-if="msg.ts" class="msg-time">{{ formatMsgTime(msg.ts) }}</span>
+                    <!-- 用户侧只给时间，不给头像与昵称：不展示任何个人信息 -->
+                    <span
+                      v-if="view.msg.role === 'user' && view.groupEnd && view.msg.ts"
+                      class="msg-time msg-time-mine"
+                    >{{ formatMsgTime(view.msg.ts) }}</span>
                   </div>
                 </div>
               </el-scrollbar>
@@ -1015,16 +1096,18 @@ const onEnterKey = (e) => {
                     :icon="Paperclip"
                     class="attach-btn"
                     :disabled="sending"
+                    aria-label="添加图片、音频或视频"
                     @click="pickFiles"
                   />
                 </el-tooltip>
                 <el-input
+                  ref="inputRef"
                   v-model="inputText"
                   type="textarea"
-                  :autosize="{ minRows: 1, maxRows: 3 }"
+                  :autosize="{ minRows: 1, maxRows: 4 }"
                   resize="none"
                   maxlength="2000"
-                  :placeholder="`咨询 ${pet.name} 的健康、习性等问题，也可以直接发送照片 / 语音...`"
+                  :placeholder="inputPlaceholder"
                   class="chat-textarea"
                   @keydown.enter="onEnterKey"
                 />
@@ -1039,6 +1122,12 @@ const onEnterKey = (e) => {
                   发送
                 </el-button>
                 <el-button v-else round class="send-btn stop-btn" @click="handleStop">停止</el-button>
+              </div>
+              <!-- 输入提示行：桌面端给快捷键与字数；移动端只在有内容时显示字数，
+                   空输入时整行收起，避免胶囊底部多出一条空白 -->
+              <div v-if="inputText.length || !isNarrow" class="composer-hint">
+                <span class="hint-keys">Enter 发送 · Shift + Enter 换行</span>
+                <span v-if="inputText.length" class="hint-count">{{ inputText.length }}/2000</span>
               </div>
               <!-- 隐藏的附件选择输入框（accept 限定图片 / 音频 / 视频，可多选） -->
               <input
@@ -1116,18 +1205,19 @@ const onEnterKey = (e) => {
 }
 
 /* ---------- 侧栏 ---------- */
+/* 侧栏是"目录"层：比聊天区更轻，避免与消息抢注意力 */
 .chat-sidebar {
-  width: 248px;
+  width: 256px;
   flex-shrink: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border-right: 1px solid var(--pv-border);
-  background: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.32);
 }
 .side-section {
-  padding: 14px 12px;
+  padding: 16px 12px;
 }
 .session-section {
   flex: 1;
@@ -1137,8 +1227,9 @@ const onEnterKey = (e) => {
   border-top: 1px solid var(--pv-border);
 }
 .side-title {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
   color: var(--pv-text-secondary);
   padding: 0 4px;
   margin-bottom: 10px;
@@ -1174,11 +1265,13 @@ const onEnterKey = (e) => {
   transition: background 0.15s;
 }
 .pet-item:hover {
-  background: var(--pv-tint);
+  background: rgba(255, 255, 255, 0.55);
 }
+/* 选中态做成一片浮起来的小玻璃：底色 + 高光边 + 轻投影，比单纯变色更明确 */
 .pet-item.active {
-  background: var(--pv-tint);
-  border-color: var(--pv-border);
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(104, 120, 150, 0.12), 0 8px 18px -14px rgba(24, 32, 48, 0.5);
 }
 .pet-item-avatar {
   flex-shrink: 0;
@@ -1217,6 +1310,7 @@ const onEnterKey = (e) => {
   text-align: center;
 }
 .session-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1225,14 +1319,27 @@ const onEnterKey = (e) => {
   border-radius: 10px;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 .session-item:hover {
-  background: var(--pv-tint);
+  background: rgba(255, 255, 255, 0.55);
 }
 .session-item.active {
-  background: var(--pv-tint);
-  border-color: var(--pv-border);
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(104, 120, 150, 0.1);
+}
+/* 当前会话的左侧墨色竖条：列表里一眼定位"正在看哪一条" */
+.session-item.active::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--pv-ink);
+  transform: translateY(-50%);
 }
 .session-title {
   flex: 1;
@@ -1289,14 +1396,30 @@ const onEnterKey = (e) => {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 16px 24px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--pv-border);
+}
+.pet-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
 }
 .pet-avatar {
   flex-shrink: 0;
-  border: 3px solid #fff;
-  box-shadow: var(--pv-shadow-sm);
+  border: 3px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10px 22px -14px rgba(24, 32, 48, 0.5), 0 0 0 1px rgba(104, 120, 150, 0.1);
   font-size: 16px;
+}
+/* 可用状态点：压在头像右下角，给标题条一点"活着"的细节 */
+.pet-online {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #45a97a;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95);
 }
 .pet-brief {
   flex: 1;
@@ -1454,87 +1577,189 @@ const onEnterKey = (e) => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 18px 24px;
+  padding: 12px 24px 4px;
 }
 .history-skeleton {
   padding: 8px 0;
 }
+/* 宽屏下把对话收进 880px：一行文字过长会明显影响阅读效率 */
 .msg-scroll {
   flex: 1;
   min-height: 0;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
 }
+/* 让内容在消息区里纵向铺满：空态可以真正居中，消息多时又照常撑高 */
 .msg-scroll :deep(.el-scrollbar__view) {
-  padding: 4px 4px 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 8px 4px 8px;
 }
 
 /* 空会话欢迎占位 */
 .empty-talk {
+  flex: 1;
   min-height: 320px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  padding: 24px 16px;
+  text-align: center;
 }
 .empty-avatar {
-  border: 3px solid #fff;
-  box-shadow: var(--pv-shadow);
-  font-size: 24px;
-  margin-bottom: 8px;
+  border: 3px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 20px 44px -22px rgba(24, 32, 48, 0.55), 0 0 0 1px rgba(104, 120, 150, 0.12);
+  font-size: 26px;
+  margin-bottom: 16px;
 }
 .empty-title {
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 700;
+  letter-spacing: 0.2px;
   color: var(--pv-text);
 }
 .empty-sub {
+  margin-top: 6px;
+  max-width: 420px;
   font-size: 13px;
+  line-height: 1.65;
   color: var(--pv-text-secondary);
 }
+/* 推荐问题：把"不知道问什么"的空白成本降到一次点击 */
+.empty-suggests {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+  max-width: 480px;
+}
+.suggest-chip {
+  padding: 8px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--pv-border);
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--pv-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.suggest-chip:hover {
+  background: #fff;
+  border-color: var(--pv-ink);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -16px rgba(24, 32, 48, 0.6);
+}
+.suggest-chip:active {
+  transform: translateY(0);
+}
+.suggest-chip:focus-visible {
+  outline: 2px solid rgba(23, 24, 28, 0.55);
+  outline-offset: 2px;
+}
 
-/* 气泡行 */
+/* ---------- 气泡行 ---------- */
+/* 间距节奏：同角色连续消息贴紧（8px），换角色时拉开（22px），一屏里能看出"谁在说" */
 .msg-row {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 10px;
-  margin-bottom: 16px;
+}
+.msg-row + .msg-row {
+  margin-top: 8px;
+}
+.msg-row + .msg-row.group-start {
+  margin-top: 22px;
 }
 .msg-row.mine {
   justify-content: flex-end;
 }
-.msg-avatar {
+
+/* 头像槽：组内后续消息不重复显示头像，但保留等宽占位，气泡左缘始终对齐 */
+.msg-avatar-slot {
+  width: 34px;
   flex-shrink: 0;
-  font-size: 13px;
+  /* 与「顾问名 + 时间」那一行等高，头像顶边正好贴在气泡顶边 */
+  padding-top: 24px;
 }
+.msg-avatar-wrap {
+  position: relative;
+  width: 34px;
+  height: 34px;
+}
+.msg-avatar {
+  font-size: 13px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 6px 14px -10px rgba(24, 32, 48, 0.5);
+}
+/* 头像角标：把"这是 AI 说的"标在身份标记上，而不是靠气泡颜色猜 */
+.msg-avatar-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  padding: 0 4px;
+  height: 14px;
+  line-height: 14px;
+  border-radius: 7px;
+  background: var(--pv-ink);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95);
+}
+
 .bubble-col {
   display: flex;
   flex-direction: column;
-  max-width: 72%;
+  max-width: 74%;
   min-width: 0;
 }
 .msg-row.mine .bubble-col {
   align-items: flex-end;
 }
+
+/* 顾问身份行：只在组首出现 */
+.msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 6px 2px;
+}
+.msg-role {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--pv-text-secondary);
+}
+
+/* 气泡本体：统一的圆角尺度与行高，只靠"材质 + 朝向"区分角色 */
 .bubble {
-  padding: 10px 14px;
-  border-radius: 14px;
+  padding: 11px 15px;
+  border-radius: 18px;
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.68;
   word-break: break-word;
   white-space: pre-wrap;
 }
-/* 顾问气泡：靠左，浅底 */
+/* 顾问气泡：奶白玻璃纸，靠左，靠近头像的一角收紧 */
 .msg-row.ai .bubble {
-  background: var(--pv-tint);
-  border: 1px solid var(--pv-border);
-  border-bottom-left-radius: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 6px 18px 18px 18px;
   color: var(--pv-text);
+  box-shadow: 0 0 0 1px rgba(104, 120, 150, 0.1), 0 12px 26px -20px rgba(24, 32, 48, 0.5);
 }
-/* 用户气泡：靠右，墨色底 */
+/* 用户气泡：墨色实心，靠右，右下角收紧并带一层内高光 */
 .msg-row.mine .bubble {
-  background: var(--pv-ink);
-  border-bottom-right-radius: 4px;
-  color: #fff;
+  background: linear-gradient(145deg, #2d313c 0%, #14161c 100%);
+  border-radius: 18px 18px 6px 18px;
+  color: #f6f7fa;
+  box-shadow: 0 12px 26px -16px rgba(18, 22, 32, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 /* AI 回复的 markdown 富文本：覆盖气泡的 pre-wrap，避免段落间出现多余空行 */
 .bubble-md {
@@ -1613,11 +1838,16 @@ const onEnterKey = (e) => {
   border: none;
   border-top: 1px solid var(--pv-border);
 }
+/* 时间戳：等宽数字，弱化成"元信息"而不是正文 */
 .msg-time {
-  margin-top: 4px;
-  padding: 0 4px;
   font-size: 11px;
   color: var(--pv-text-secondary);
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+.msg-time-mine {
+  margin-top: 5px;
+  padding-right: 3px;
 }
 /* 停止 / 出错的小字标注 */
 .stop-mark {
@@ -1632,7 +1862,8 @@ const onEnterKey = (e) => {
 }
 /* 失败气泡：醒目边框提示异常，配「重新生成」按钮一键重发 */
 .bubble.failed {
-  border-color: var(--el-color-danger-light-7, #fde2e2);
+  border-color: rgba(196, 86, 86, 0.45);
+  box-shadow: 0 0 0 1px rgba(196, 86, 86, 0.18), 0 12px 26px -20px rgba(24, 32, 48, 0.5);
 }
 .regen-btn {
   margin-top: 6px;
@@ -1755,13 +1986,25 @@ const onEnterKey = (e) => {
 /* ---------- 底部输入区 ---------- */
 .chat-input {
   position: relative;
-  margin: 0 18px 18px;
-  padding: 12px 14px;
+  margin: 0 20px 20px;
+  padding: 10px 12px 8px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   border-radius: 24px;
   overflow: hidden;
+  transition: border-color 0.22s ease, box-shadow 0.22s ease;
+}
+/* 悬停：描边亮一档，整块输入面显得可交互 */
+.chat-input:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+/* 聚焦（焦点在输入框或按钮上）：深一度投影 + 一圈中性色外环。
+   这里不能用白色外发光——胶囊压在浅色卡片上，白光等于看不见 */
+.chat-input:focus-within {
+  border-color: rgba(255, 255, 255, 0.44);
+  box-shadow: 0 26px 56px -22px rgba(8, 12, 22, 0.72), 0 0 0 3px rgba(20, 22, 28, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 /* 输入框在墨色玻璃上「消失」，只留文字与光标，胶囊本身就是输入框 */
 .chat-input :deep(.el-textarea__inner) {
@@ -1772,8 +2015,9 @@ const onEnterKey = (e) => {
   box-shadow: none;
   color: #fff;
   caret-color: #fff;
-  padding: 8px 6px;
-  line-height: 1.6;
+  padding: 9px 4px;
+  font-size: 14px;
+  line-height: 1.62;
 }
 .chat-input :deep(.el-textarea__inner::placeholder) {
   color: rgba(255, 255, 255, 0.46);
@@ -1798,21 +2042,90 @@ const onEnterKey = (e) => {
 .input-row {
   display: flex;
   align-items: flex-end;
-  gap: 12px;
+  gap: 10px;
 }
+/* 回形针：小圆钮，颜色由 .pv-glass-ink 统一反相，这里只管尺寸与按压反馈 */
 .attach-btn {
   flex-shrink: 0;
-  margin-bottom: 1px;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 2px;
+  border-radius: 50%;
+  transition: transform 0.16s ease, background-color 0.18s ease, border-color 0.18s ease,
+    color 0.18s ease;
+}
+.attach-btn:active:not(.is-disabled) {
+  transform: scale(0.94);
+}
+.attach-btn.is-disabled {
+  cursor: not-allowed;
 }
 .chat-textarea {
   flex: 1;
 }
+/* 发送按钮：默认 / 悬停 / 聚焦 / 按下 / 禁用 五态自成一套，
+   不依赖全局墨色反相规则（EP 的按钮变量会在状态切换时互相覆盖，白底白字会直接看不见） */
 .send-btn {
   flex-shrink: 0;
   width: 88px;
+  height: 38px;
+  margin-bottom: 1px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  background: #fff !important;
+  border-color: #fff !important;
+  color: var(--pv-ink) !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.34), inset 0 1px 0 #fff !important;
+  transition: transform 0.18s ease, box-shadow 0.2s ease, background-color 0.2s ease,
+    color 0.2s ease;
 }
+.send-btn:hover:not(.is-disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.42), inset 0 1px 0 #fff !important;
+}
+.send-btn:active:not(.is-disabled) {
+  transform: translateY(0) scale(0.97);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.3), inset 0 1px 0 #fff !important;
+}
+.send-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}
+/* 禁用：退成半透明幽灵按钮，仍保留"这里有个发送键"的位置感 */
+.send-btn.is-disabled,
+.send-btn.is-disabled:hover,
+.send-btn.is-disabled:active {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  color: rgba(255, 255, 255, 0.42) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  cursor: not-allowed;
+}
+/* 「停止」是同一位置的次要动作：留白底但降一档，和「发送」区分主次 */
 .stop-btn {
   font-weight: 600;
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.9) !important;
+  color: var(--pv-ink) !important;
+}
+
+/* 输入提示行：桌面给快捷键，移动端只留字数 */
+.composer-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 14px;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 14px;
+  color: rgba(255, 255, 255, 0.42);
+  user-select: none;
+}
+.hint-count {
+  color: rgba(255, 255, 255, 0.55);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 待发送附件条 */
@@ -2007,6 +2320,19 @@ const onEnterKey = (e) => {
   color: var(--pv-text-secondary);
 }
 
+/* ---------- 平板（≤1024px）：侧栏收窄，气泡放宽 ---------- */
+@media (max-width: 1024px) {
+  .chat-sidebar {
+    width: 220px;
+  }
+  .bubble-col {
+    max-width: 78%;
+  }
+  .chat-body {
+    padding: 12px 18px 4px;
+  }
+}
+
 /* ---------- 移动端 ---------- */
 @media (max-width: 768px) {
   /* 手机端直接展示对话：侧栏收进右上角弹层，聊天区与输入框占满剩余视口高度 */
@@ -2029,39 +2355,92 @@ const onEnterKey = (e) => {
     width: 100%;
   }
   .chat-topbar {
-    gap: 10px;
+    gap: 12px;
     padding: 10px 14px;
+  }
+  .pet-avatar :deep(img) {
+    border-radius: 50%;
   }
   .pet-name {
     font-size: 16px;
+  }
+  .pet-sub {
+    font-size: 11px;
   }
   .mobile-panel-btn {
     display: inline-flex;
   }
   .chat-body {
     min-height: 0;
-    padding: 12px 14px;
+    padding: 8px 12px 0;
   }
   .msg-scroll {
+    max-width: none;
     height: auto;
     min-height: 0;
   }
+  .msg-scroll :deep(.el-scrollbar__view) {
+    padding: 4px 2px 8px;
+  }
+  /* 窄屏上"组间 22px / 组内 8px"的对比保留，但整体收紧一档 */
+  .msg-row + .msg-row {
+    margin-top: 6px;
+  }
+  .msg-row + .msg-row.group-start {
+    margin-top: 16px;
+  }
+  .msg-avatar-slot {
+    width: 30px;
+    padding-top: 22px;
+  }
+  .msg-avatar-wrap {
+    width: 30px;
+    height: 30px;
+  }
+  .bubble-col {
+    max-width: 86%;
+  }
+  .bubble {
+    padding: 10px 13px;
+    font-size: 14px;
+  }
   .empty-talk {
     min-height: 0;
+    padding: 16px 8px;
+  }
+  .msg-scroll :deep(.el-scrollbar__view) {
+    min-height: 100%;
+  }
+  .empty-suggests {
+    gap: 6px;
+    margin-top: 16px;
+  }
+  .suggest-chip {
+    padding: 7px 12px;
+    font-size: 12px;
   }
   .chat-input {
     margin: 0 12px 12px;
-    padding: 10px 12px;
+    padding: 8px 10px 6px 12px;
     border-radius: 20px;
   }
   .input-row {
     gap: 8px;
   }
   .send-btn {
-    width: 68px;
+    width: 66px;
+    height: 36px;
   }
-  .bubble-col {
-    max-width: 84%;
+  .attach-btn {
+    width: 34px;
+    height: 34px;
+  }
+  /* 触屏没有 Enter 键，去掉快捷键提示，只保留字数 */
+  .hint-keys {
+    display: none;
+  }
+  .composer-hint {
+    justify-content: flex-end;
   }
 }
 </style>
