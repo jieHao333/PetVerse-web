@@ -568,7 +568,7 @@ onMounted(loadReviews)
   align-items: center;
   justify-content: center;
   font-size: 20px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.6);
   border-radius: 8px;
 }
 .product-info {
@@ -681,7 +681,7 @@ onMounted(loadReviews)
 }
 .reply-avatar {
   flex-shrink: 0;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.55);
   color: var(--pv-text);
 }
 .reply-body {

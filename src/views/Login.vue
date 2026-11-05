@@ -112,16 +112,24 @@ const onSubmit = async () => {
 <style scoped>
 .auth-page {
   position: relative;
+  /* 建立独立层叠上下文：下方的极光层用 z-index:-1 挂在页面底，不会漏到内容之上 */
+  isolation: isolate;
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   overflow: hidden;
-  background:
-    radial-gradient(55% 75% at 12% 16%, rgba(255, 210, 224, 0.5), transparent 62%),
-    radial-gradient(50% 70% at 88% 10%, rgba(190, 218, 255, 0.5), transparent 62%),
-    radial-gradient(55% 75% at 82% 88%, rgba(198, 242, 222, 0.45), transparent 62%),
-    radial-gradient(45% 65% at 14% 88%, rgba(255, 234, 198, 0.5), transparent 62%),
-    #fbfaf8;
+  background: transparent;
+}
+/* 登录/注册是全站唯一保留极光色场的页面，作为页面局部装饰层铺在最底层；
+   登录后的主界面统一使用中性纯色背景 */
+.auth-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: #f7f8fb;
+  background-image: var(--pv-aurora-image);
 }
 
 /* 缓慢呼吸的柔光层 */
@@ -253,14 +261,13 @@ const onSubmit = async () => {
   width: 420px;
   max-width: 100%;
   padding: 44px 40px 36px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.5);
-  backdrop-filter: blur(26px) saturate(170%);
-  -webkit-backdrop-filter: blur(26px) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  box-shadow:
-    0 24px 60px rgba(60, 66, 90, 0.16),
-    inset 0 1px 1px rgba(255, 255, 255, 0.9);
+  border-radius: var(--pv-radius-lg);
+  background-color: var(--pv-glass-2);
+  background-image: var(--pv-glass-sheen);
+  backdrop-filter: var(--pv-glass-blur-lg);
+  -webkit-backdrop-filter: var(--pv-glass-blur-lg);
+  border: 1px solid var(--pv-glass-line);
+  box-shadow: var(--pv-glass-shadow-lg), var(--pv-glass-ring);
   overflow: hidden;
   animation: card-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }

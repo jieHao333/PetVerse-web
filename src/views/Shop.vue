@@ -316,7 +316,7 @@ const openMyReviews = async () => {
 }
 .product-card {
   border: 1px solid var(--pv-border);
-  background: #fff;
+  background: var(--pv-glass-2);
   border-radius: 14px;
   overflow: hidden;
   cursor: pointer;

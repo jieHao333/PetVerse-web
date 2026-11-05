@@ -985,8 +985,8 @@ const onEnterKey = (e) => {
               </el-scrollbar>
             </div>
 
-            <!-- 底部输入区 -->
-            <div class="chat-input">
+            <!-- 底部输入区：墨色玻璃胶囊（深色磨砂 + 高光描边，呼应参考稿的输入条质感） -->
+            <div class="chat-input pv-glass-ink">
               <!-- 待发送附件条：选择后立即上传，全部就绪即可随消息一并发出 -->
               <div v-if="pendingFiles.length" class="pending-files">
                 <div
@@ -1111,7 +1111,7 @@ const onEnterKey = (e) => {
 .chat-layout {
   display: flex;
   align-items: stretch;
-  height: calc(100vh - 136px);
+  height: calc(100vh - 162px);
   min-height: 480px;
 }
 
@@ -1434,7 +1434,7 @@ const onEnterKey = (e) => {
   border-radius: 999px;
   font-size: 11px;
   color: var(--pv-text-secondary);
-  background: #fff;
+  background: var(--pv-tint);
   border: 1px solid var(--pv-border);
 }
 .mp-session {
@@ -1754,11 +1754,46 @@ const onEnterKey = (e) => {
 
 /* ---------- 底部输入区 ---------- */
 .chat-input {
+  position: relative;
+  margin: 0 18px 18px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 24px 20px;
-  border-top: 1px solid var(--pv-border);
+  border-radius: 24px;
+  overflow: hidden;
+}
+/* 输入框在墨色玻璃上「消失」，只留文字与光标，胶囊本身就是输入框 */
+.chat-input :deep(.el-textarea__inner) {
+  background-color: transparent;
+  background-image: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  color: #fff;
+  caret-color: #fff;
+  padding: 8px 6px;
+  line-height: 1.6;
+}
+.chat-input :deep(.el-textarea__inner::placeholder) {
+  color: rgba(255, 255, 255, 0.46);
+}
+.chat-input :deep(.el-textarea__inner:focus) {
+  background-color: transparent;
+  box-shadow: none;
+}
+/* 待发送附件条：深底上换成更轻的玻璃片 */
+.chat-input .pending-file {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.92);
+}
+.chat-input .pending-file .pf-name {
+  color: #fff;
+}
+.chat-input .pending-file .pf-sub,
+.chat-input .pending-file .pf-state {
+  color: rgba(255, 255, 255, 0.6);
 }
 .input-row {
   display: flex;
@@ -1983,8 +2018,8 @@ const onEnterKey = (e) => {
     padding: 10px 12px;
   }
   .chat-layout {
-    height: calc(100vh - 86px);
-    height: calc(100dvh - 86px);
+    height: calc(100vh - 98px);
+    height: calc(100dvh - 98px);
     min-height: 0;
   }
   .chat-sidebar {
@@ -2015,7 +2050,9 @@ const onEnterKey = (e) => {
     min-height: 0;
   }
   .chat-input {
-    padding: 10px 14px 12px;
+    margin: 0 12px 12px;
+    padding: 10px 12px;
+    border-radius: 20px;
   }
   .input-row {
     gap: 8px;

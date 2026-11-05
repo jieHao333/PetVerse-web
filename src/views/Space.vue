@@ -1,7 +1,7 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CircleClose, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
+import { CircleClose, Loading, Plus, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import { deleteSpace, getSpacePage, saveSpace, updateSpace, uploadSpaceMedia } from '@/api/space'
 import { DEFAULT_AVATAR } from '@/utils/avatar'
 import { requireLogin, authUser } from '@/utils/auth'
@@ -19,16 +19,58 @@ const router = useRouter()
 
 const spaces = ref([])
 const total = ref(0)
+// 滚动加载游标：pageNum 始终指向「下一页」要请求的页码
 const pageNum = ref(1)
-const pageSize = ref(10)
+// 每页条数固定：无限滚动没有「每页条数」入口，但接口参数保持原样
+const PAGE_SIZE = 10
 const keyword = ref('')
 // 话题页（space/topic/:category）从路由参数取话题并锁定，圈子主页则为可编辑的筛选条件
 const category = ref(route.params.category || '')
 const topicMode = computed(() => !!route.params.category)
-const loading = ref(false)
 
-// 当前登录用户ID，仅本人动态展示编辑/删除入口。
-// 取自响应式登录态：令牌失效后 myId 变空，不会再把上一个身份的动态当成「我的」
+// 首次进入 / 换筛选条件时的整块加载（遮罩住列表）
+const loading = ref(false)
+// 触底追加：只在列表底部显示加载条，不遮挡已有内容
+const loadingMore = ref(false)
+// 是否还有下一页：由「本页是否满页」和「累计条数 vs total」共同判定
+const hasMore = ref(true)
+// 追加失败：底部给一个「点击重试」，不用弹窗打断
+const loadError = ref(false)
+
+// 到底提示：后端没返回 total 时只显示「没有更多了」，避免出现「共 0 条」
+const endText = computed(() =>
+  total.value > 0 ? `— 没有更多了 · 共 ${total.value} 条 —` : '— 没有更多了 —',
+)
+
+/**
+ * 请求代次：切换搜索/话题后，此前发出的请求一律作废。
+ * 只靠 loading 标记挡不住「旧请求晚到」的情况——晚到的旧结果会被拼进新列表，
+ * 出现搜「猫」却混进「狗」动态的问题。
+ */
+let requestSeq = 0
+
+/**
+ * 按 id 去重后追加，返回真正新增的条数。
+ * 后端在翻页期间有新动态插入时，相邻两页可能出现重复项（分页漂移），
+ * 直接 concat 会让同一条动态渲染两次，key 冲突还会引发节点复用错乱。
+ */
+const appendSpaces = (records) => {
+  const seen = new Set(spaces.value.map((s) => String(s.id)))
+  const fresh = []
+  for (const item of records) {
+    const key = String(item.id)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    fresh.push(item)
+  }
+  if (fresh.length) spaces.value = spaces.value.concat(fresh)
+  return fresh.length
+}
+
+/**
+ * 当前登录用户ID，仅本人动态展示编辑/删除入口
+ * 取自响应式登录态：令牌失效后 myId 变空，不会再把上一个身份的动态当成「我的」
+ */
 const myId = computed(() => String(authUser.value?.id || ''))
 const isMySpace = (item) => !!myId.value && String(item.userId) === myId.value
 
@@ -46,32 +88,179 @@ const form = ref({ id: null, title: '', content: '', topics: [], visibility: 0, 
 const uploadingCount = ref(0)
 const uploading = computed(() => uploadingCount.value > 0)
 
-const loadSpaces = async () => {
-  loading.value = true
+/* ==================== 列表加载：首屏 + 滚动追加 ==================== */
+
+// 触底哨兵：放在列表最末尾，进入视口即视为「滚到底了」
+const sentinelRef = ref(null)
+let observer = null
+// 触发防抖窗口：滚动监听与 observer 回调都会打到同一个入口，
+// 300ms 内只保留一次，避免一次触底连发多个请求
+const TRIGGER_GAP = 300
+let triggerTimer = null
+// 预取距离：滚到底之前 240px 就把下一页取回来，观感上不会「卡一下」
+const PREFETCH = 240
+
+/**
+ * 拉取一页并写入列表
+ * @param {boolean} append true=追加下一页，false=重载第一页
+ */
+const fetchPage = async (append) => {
+  const seq = requestSeq
+  if (append) {
+    loadingMore.value = true
+  } else {
+    loading.value = true
+  }
+  loadError.value = false
   try {
     const data = await getSpacePage({
       pageNum: pageNum.value,
-      pageSize: pageSize.value,
+      pageSize: PAGE_SIZE,
       keyword: keyword.value || undefined,
       category: category.value || undefined,
     })
-    spaces.value = data.records
-    // 后端 Long 统一序列化为字符串（防雪花ID精度丢失），total 需还原为数字供分页组件使用
-    total.value = Number(data.total || 0)
-    // 动态列表刷新后批量拉取评论数快照
-    loadCommentCounts()
+    // 筛选条件在等待期间变了：本次结果作废，既不写入列表也不改游标
+    if (seq !== requestSeq) return
+
+    const records = Array.isArray(data?.records) ? data.records : []
+    // 后端 Long 统一序列化为字符串（防雪花ID精度丢失），total 需还原为数字
+    total.value = Number(data?.total || 0)
+
+    let added
+    if (append) {
+      added = appendSpaces(records)
+    } else {
+      // 重载：旧评论数快照一并作废，避免新列表沿用上一批数据的计数
+      commentCountMap.value = {}
+      spaces.value = records
+      added = records.length
+    }
+
+    // 游标只在成功时前进，失败重试才会打到同一页
+    pageNum.value += 1
+
+    // 结束判定：本页没满 / 已取满 total / 整页都是重复数据（后端翻页漂移）
+    const reachedTotal = total.value > 0 && spaces.value.length >= total.value
+    hasMore.value = !(records.length < PAGE_SIZE || reachedTotal || (append && added === 0))
+
+    // 只为本次返回的动态批量拉评论数快照，追加时不重复请求已加载的部分
+    if (records.length) loadCommentCounts(records)
   } catch (e) {
-    ElMessage.error(e.message)
+    if (seq !== requestSeq) return
+    loadError.value = true
+    // 首屏失败弹提示；滚动追加失败只在底部给重试入口，避免打断浏览
+    if (!append) ElMessage.error(e.message)
   } finally {
-    loading.value = false
+    if (append) {
+      loadingMore.value = false
+    } else {
+      loading.value = false
+    }
+    // 一屏能放下整页时哨兵不会离开视口，observer 也就不会再回调，
+    // 这里主动续接一次，否则列表会停在底部不再加载
+    if (seq === requestSeq) chainIfSentinelVisible()
   }
 }
 
-onMounted(loadSpaces)
+/** 哨兵是否已进入（或接近）视口 */
+const sentinelNearViewport = (offset) => {
+  const el = sentinelRef.value
+  if (!el) return false
+  const viewportH = window.innerHeight || document.documentElement.clientHeight
+  return el.getBoundingClientRect().top <= viewportH + offset
+}
+
+/** 哨兵仍在视口内且还有数据时，继续加载下一页 */
+const chainIfSentinelVisible = () => {
+  if (!hasMore.value || loadError.value) return
+  nextTick(() => {
+    if (!hasMore.value || loadError.value) return
+    if (sentinelNearViewport(0)) loadMore()
+  })
+}
+
+/** 真正发起追加：只做请求级拦截（在途 / 已到底），失败重试与自动续接都走这里 */
+const loadMore = () => {
+  if (loading.value || loadingMore.value || !hasMore.value) return
+  fetchPage(true)
+}
+
+/**
+ * 滚动触发入口：防抖 + 请求级拦截双重保护
+ * 防抖用 trailing 形式（窗口结束后补发一次），而不是直接丢弃，
+ * 否则用户恰好在窗口内停止滚动时，这次触底就永久丢失了
+ */
+const onScrollTrigger = () => {
+  // 上一次失败后不再自动重试，等用户点「点击重试」，
+  // 否则服务端异常时每次滚动都会打一次接口
+  if (loadError.value) return
+  if (triggerTimer) return
+  triggerTimer = setTimeout(() => {
+    triggerTimer = null
+    loadMore()
+  }, TRIGGER_GAP)
+}
+
+/** 失败重试：首屏失败要走整块重载，追加失败只需续接下一页 */
+const retryLoad = () => {
+  if (!spaces.value.length) {
+    reloadSpaces()
+    return
+  }
+  loadMore()
+}
+
+// 滚动兜底：内容高度突变时，IntersectionObserver 可能因为「状态没变化」不再回调，
+// 这里用被动滚动监听 + rAF 节流补一次几何判断，两条路径都进同一个防抖入口
+let scrollTicking = false
+const onWindowScroll = () => {
+  if (scrollTicking) return
+  scrollTicking = true
+  requestAnimationFrame(() => {
+    scrollTicking = false
+    if (sentinelNearViewport(PREFETCH)) onScrollTrigger()
+  })
+}
+
+/** 重载第一页：换搜索/话题、发布或删除后回到最新的数据 */
+const reloadSpaces = () => {
+  requestSeq += 1
+  pageNum.value = 1
+  hasMore.value = true
+  loadError.value = false
+  loadingMore.value = false
+  // 丢弃尚未执行的触底触发，避免旧条件的结果拼到新列表里
+  if (triggerTimer) {
+    clearTimeout(triggerTimer)
+    triggerTimer = null
+  }
+  return fetchPage(false)
+}
+
+const onSentinelIntersect = (entries) => {
+  const entry = entries[entries.length - 1]
+  if (entry?.isIntersecting) onScrollTrigger()
+}
+
+onMounted(() => {
+  reloadSpaces()
+  observer = new IntersectionObserver(onSentinelIntersect, { rootMargin: `${PREFETCH}px 0px` })
+  if (sentinelRef.value) observer.observe(sentinelRef.value)
+  window.addEventListener('scroll', onWindowScroll, { passive: true })
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  observer = null
+  window.removeEventListener('scroll', onWindowScroll)
+  if (triggerTimer) {
+    clearTimeout(triggerTimer)
+    triggerTimer = null
+  }
+})
 
 const onSearch = () => {
-  pageNum.value = 1
-  loadSpaces()
+  reloadSpaces()
 }
 
 // 点赞/取消点赞：乐观更新计数与状态，失败时回滚
@@ -106,17 +295,18 @@ const onToggleLike = async (item) => {
 // 每条动态的评论数快照（列表加载后批量拉取，key 为动态ID字符串）
 const commentCountMap = ref({})
 
-const loadCommentCounts = async () => {
-  const ids = spaces.value.map((s) => s.id).filter(Boolean)
-  if (!ids.length) {
-    commentCountMap.value = {}
-    return
-  }
+/**
+ * 批量拉取评论数快照并合并进缓存
+ * 只传本次新返回的动态 id：滚动追加时不必为已加载的部分重复请求
+ */
+const loadCommentCounts = async (records = []) => {
+  const ids = records.map((s) => s.id).filter(Boolean)
+  if (!ids.length) return
   try {
-    commentCountMap.value = (await getCommentCounts(COMMENT_TARGET_SPACE, ids)) || {}
+    const map = await getCommentCounts(COMMENT_TARGET_SPACE, ids)
+    if (map) commentCountMap.value = { ...commentCountMap.value, ...map }
   } catch {
     // 评论数拉取失败不阻断动态展示，按 0 处理
-    commentCountMap.value = {}
   }
 }
 
@@ -146,12 +336,6 @@ const truncatedContent = (item) => {
 
 // 列表页仅展示第一个媒体（图片或视频），其余在详情页查看
 const firstMedia = (item) => item.mediaList?.[0] || null
-
-// 切换每页条数后回到第一页重新加载
-const onSizeChange = () => {
-  pageNum.value = 1
-  loadSpaces()
-}
 
 const openCreate = async () => {
   if (!(await requireLogin(router, route.fullPath))) return
@@ -273,12 +457,25 @@ const onSave = async () => {
       ElMessage.success('发布成功，宠物经验奖励已异步发放')
     }
     dialogVisible.value = false
-    loadSpaces()
+    // 新发布/刚修改的动态应该出现在最前面，回到第一页重载
+    reloadSpaces()
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
     saving.value = false
   }
+}
+
+/** 删除后就地移除：整表重载会把用户已经滚到的位置丢掉 */
+const removeSpaceLocally = (id) => {
+  const key = String(id)
+  const next = spaces.value.filter((s) => String(s.id) !== key)
+  if (next.length === spaces.value.length) return
+  spaces.value = next
+  total.value = Math.max(total.value - 1, 0)
+  delete commentCountMap.value[key]
+  // 少了一条后列表可能不够一屏，补一次续接判断
+  chainIfSentinelVisible()
 }
 
 const onDelete = async (item) => {
@@ -290,7 +487,7 @@ const onDelete = async (item) => {
     })
     await deleteSpace(item.id)
     ElMessage.success('删除成功')
-    loadSpaces()
+    removeSpaceLocally(item.id)
   } catch {
     // 用户取消则不处理
   }
@@ -417,7 +614,8 @@ const gotoProfile = (userId) => {
           </div>
         </div>
 
-        <div v-if="!loading && !spaces.length" class="feed-empty pv-panel">
+        <!-- 加载失败时不显示「还没有动态」的空态，避免把请求失败误报成没有数据 -->
+        <div v-if="!loading && !loadError && !spaces.length" class="feed-empty pv-panel">
           {{
             keyword || category
               ? '没有搜索到相关动态'
@@ -425,19 +623,27 @@ const gotoProfile = (userId) => {
           }}
         </div>
 
-        <div v-if="total > 0" class="pager pv-panel">
-          <span class="total-text">共 {{ total }} 条</span>
-          <el-pagination
-            v-model:current-page="pageNum"
-            v-model:page-size="pageSize"
-            :page-sizes="[10, 15, 20, 50]"
-            :total="Number(total)"
-            layout="sizes, prev, pager, next"
-            background
-            @current-change="loadSpaces"
-            @size-change="onSizeChange"
-          />
+        <!-- 滚动加载状态条：加载中 / 失败重试 / 到底提示，三者互斥 -->
+        <div
+          v-if="spaces.length || loadError"
+          class="feed-status"
+          role="status"
+          aria-live="polite"
+        >
+          <template v-if="loadingMore">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            <span>正在加载更多…</span>
+          </template>
+          <span v-else-if="loadError" class="feed-status-retry">
+            加载失败
+            <el-button link type="primary" @click="retryLoad">点击重试</el-button>
+          </span>
+          <span v-else-if="!hasMore">{{ endText }}</span>
+          <span v-else class="feed-status-hint">继续向下滚动，加载更多</span>
         </div>
+
+        <!-- 触底哨兵：进入视口即触发下一页，高度 1px 不占视觉空间 -->
+        <div ref="sentinelRef" class="feed-sentinel" aria-hidden="true"></div>
       </div>
     </div>
 
@@ -796,16 +1002,31 @@ const gotoProfile = (userId) => {
   line-height: 1.6;
 }
 
-.pager {
+/* 滚动加载：底部状态条 + 触底哨兵 */
+.feed-status {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 16px;
-  padding: 14px 20px;
-}
-.total-text {
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 2px 0 6px;
   font-size: 13px;
   color: var(--pv-text-secondary);
+}
+.feed-status .el-icon {
+  font-size: 15px;
+}
+.feed-status-hint {
+  opacity: 0.72;
+}
+.feed-status-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* 1px 哨兵：给 IntersectionObserver 一个稳定的观察目标，本身不占视觉空间 */
+.feed-sentinel {
+  height: 1px;
 }
 
 @media (max-width: 768px) {
@@ -815,12 +1036,6 @@ const gotoProfile = (userId) => {
   .toolbar-input,
   .toolbar-input.narrow {
     width: 100%;
-  }
-  .pager {
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 12px 14px;
   }
   .page-title {
     font-size: 20px;

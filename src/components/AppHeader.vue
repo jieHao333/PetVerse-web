@@ -344,28 +344,44 @@ onUnmounted(stopPolling)
 </template>
 
 <style scoped>
+/* 顶栏不再是一条贴边实心条，而是一枚悬浮玻璃胶囊：
+   托底是同色相的半透明纯色 + 磨砂，内容滚到胶囊下方时被柔化，不会从胶囊上方探出 */
 .app-header {
-  background: rgba(255, 255, 255, 0.75);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  border-bottom: 1px solid rgba(23, 24, 28, 0.06);
-  box-shadow: 0 1px 0 rgba(23, 24, 28, 0.03), 0 8px 24px rgba(23, 24, 28, 0.04);
   position: sticky;
   top: 0;
   z-index: 100;
+  padding: 12px 24px;
+  background: var(--pv-bg-scrim);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
 }
 .header-inner {
+  position: relative;
+  z-index: 1;
   width: 100%;
   margin: 0;
-  padding: 0 40px;
-  height: 60px;
+  padding: 0 18px;
+  height: 62px;
   display: flex;
   align-items: center;
   gap: 16px;
+  border-radius: var(--pv-radius);
+  background-color: var(--pv-glass-2);
+  background-image: var(--pv-glass-sheen);
+  backdrop-filter: var(--pv-glass-blur);
+  -webkit-backdrop-filter: var(--pv-glass-blur);
+  border: 1px solid var(--pv-glass-line);
+  box-shadow: var(--pv-glass-shadow), var(--pv-glass-ring);
 }
 @media (max-width: 768px) {
+  .app-header {
+    padding: 8px 12px;
+  }
   .header-inner {
-    padding: 0 16px;
+    padding: 0 12px;
+    height: 56px;
+    border-radius: 18px;
+    gap: 10px;
   }
 }
 .left {
@@ -391,6 +407,7 @@ onUnmounted(stopPolling)
   object-fit: cover;
   display: block;
   flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 4px 12px rgba(24, 32, 48, 0.14);
 }
 .logo-text {
   font-size: 18px;
@@ -426,12 +443,16 @@ onUnmounted(stopPolling)
   transition: background 0.2s, color 0.2s, box-shadow 0.2s;
 }
 .nav-menu :deep(.el-menu-item:hover) {
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.44);
+  color: var(--pv-ink);
 }
 .nav-menu :deep(.el-menu-item.is-active) {
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 4px 12px rgba(23, 24, 28, 0.06), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+  background-color: var(--pv-glass-4);
+  background-image: var(--pv-glass-sheen);
+  border: 1px solid var(--pv-glass-line);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  box-shadow: 0 6px 16px -6px rgba(23, 24, 28, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.95);
   font-weight: 600;
 }
 .right {
@@ -505,9 +526,10 @@ onUnmounted(stopPolling)
   background: var(--pv-tint);
 }
 .drawer-item.active {
-  background: rgba(255, 255, 255, 0.9);
+  background-color: var(--pv-glass-4);
+  border: 1px solid var(--pv-glass-line);
   font-weight: 600;
-  box-shadow: 0 4px 12px rgba(23, 24, 28, 0.06);
+  box-shadow: 0 6px 16px -6px rgba(23, 24, 28, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 .drawer-item.danger {
   color: var(--el-color-danger);
@@ -564,6 +586,9 @@ onUnmounted(stopPolling)
 }
 @media (max-width: 360px) {
   /* 超窄屏进一步压缩间距，保证返回 + 页面标题 + 头像一行放下 */
+  .app-header {
+    padding: 6px 8px;
+  }
   .header-inner {
     padding: 0 12px;
     gap: 10px;
@@ -587,6 +612,8 @@ onUnmounted(stopPolling)
 /* 铃铛弹层内容经 teleport 挂到 body，scoped 样式无法命中，故用全局作用域 */
 .notif-popover.el-popper {
   padding: 0;
+  overflow: hidden;
+  border-radius: var(--pv-radius);
 }
 .notif-pop {
   max-height: 380px;

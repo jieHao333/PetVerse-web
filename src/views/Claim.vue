@@ -256,7 +256,7 @@ const onClaimChoose = async () => {
 .random-btn {
   position: relative;
   z-index: 1;
-  background: #fff;
+  background: var(--pv-glass-4);
   color: var(--pv-ink);
   border: none;
   font-weight: 600;
@@ -279,7 +279,7 @@ const onClaimChoose = async () => {
 .catalog-item {
   position: relative;
   border: 1px solid var(--pv-border);
-  background: #fff;
+  background: var(--pv-glass-2);
   border-radius: 14px;
   padding: 18px 16px;
   text-align: center;

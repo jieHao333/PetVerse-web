@@ -499,7 +499,7 @@ onUnmounted(() => {
   border: 1px solid var(--pv-border);
   border-radius: 12px;
   padding: 14px 16px;
-  background: #fff;
+  background: var(--pv-glass-1);
   cursor: pointer;
   transition: box-shadow 0.15s ease;
 }

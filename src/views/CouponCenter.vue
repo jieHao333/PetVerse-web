@@ -307,7 +307,8 @@ onMounted(loadIssuing)
   margin-bottom: 16px;
   border-radius: 14px;
   border: 1px dashed var(--pv-border);
-  background: var(--pv-tint);
+  /* 页面级块用玻璃片（比底色亮），--pv-tint 是卡片内的"内凹"色，铺在页面底上会发黑 */
+  background-color: var(--pv-glass-1);
 }
 .exchange-info {
   min-width: 0;

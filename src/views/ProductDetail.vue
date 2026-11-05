@@ -1163,7 +1163,7 @@ onMounted(() => {
 }
 .reply-avatar {
   flex-shrink: 0;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.55);
   color: var(--pv-text);
 }
 .reply-body {

@@ -556,13 +556,23 @@ const onSignIn = async () => {
 .page {
   min-height: 100vh;
 }
+/* 首屏横幅：截图同款墨色磨砂——深色半透明 + 彩色柔光透出 + 1px 高光描边 */
 .hero-banner {
-  background: var(--pv-ink);
   position: relative;
-  padding: 28px 32px;
+  padding: 30px 34px;
   overflow: hidden;
-  border-radius: var(--pv-radius);
+  border-radius: var(--pv-radius-lg);
   margin-bottom: 20px;
+  color: #fff;
+  background-color: rgba(24, 27, 34, 0.74);
+  background-image:
+    radial-gradient(120% 150% at 92% -30%, rgba(150, 172, 255, 0.28), transparent 62%),
+    radial-gradient(95% 130% at 4% 128%, rgba(255, 168, 194, 0.22), transparent 60%),
+    linear-gradient(150deg, rgba(46, 50, 62, 0.86) 0%, rgba(16, 18, 24, 0.78) 100%);
+  backdrop-filter: var(--pv-glass-blur);
+  -webkit-backdrop-filter: var(--pv-glass-blur);
+  border: 1px solid var(--pv-ink-glass-line);
+  box-shadow: var(--pv-ink-glass-shadow);
 }
 .hero-banner::before,
 .hero-banner::after {
@@ -665,7 +675,7 @@ const onSignIn = async () => {
   border: 1px solid var(--pv-border);
   border-radius: 14px;
   padding: 16px 18px;
-  background: #fff;
+  background: var(--pv-glass-1);
 }
 .row-avatar {
   flex-shrink: 0;
@@ -847,7 +857,7 @@ const onSignIn = async () => {
   border: 1px solid var(--pv-border);
   border-radius: 14px;
   overflow: hidden;
-  background: #fff;
+  background: var(--pv-glass-2);
   cursor: pointer;
   transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
 }

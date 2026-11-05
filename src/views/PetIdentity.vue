@@ -651,7 +651,7 @@ onMounted(async () => {
   padding: 5px 14px 5px 6px;
   border: 1px solid var(--pv-border);
   border-radius: 999px;
-  background: #fff;
+  background: var(--pv-glass-4);
   cursor: pointer;
   font-size: 13px;
   color: var(--pv-text);
@@ -886,7 +886,7 @@ onMounted(async () => {
 .health-tile {
   border: 1px solid var(--pv-border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--pv-glass-1);
   padding: 14px 16px;
   cursor: pointer;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
@@ -991,7 +991,7 @@ onMounted(async () => {
   padding: 4px 10px;
   border: 1px solid var(--pv-border);
   border-radius: 999px;
-  background: #fff;
+  background: var(--pv-glass-3);
   color: var(--pv-text-secondary);
   font-size: 12px;
   line-height: 1.5;
@@ -1012,7 +1012,7 @@ onMounted(async () => {
   margin: 20px auto 0;
   border: 1px solid var(--pv-border);
   border-radius: 14px;
-  background: #fff;
+  background: var(--pv-glass-1);
   padding: 18px 20px;
   box-shadow: var(--pv-shadow);
 }

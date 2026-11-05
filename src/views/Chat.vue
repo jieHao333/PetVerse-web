@@ -575,9 +575,9 @@ onUnmounted(() => {
 
 <style scoped>
 .chat-page {
-  height: calc(100vh - 60px);
+  height: calc(100vh - 86px);
   /* dvh 随移动端地址栏收放动态计算，避免输入区被浏览器工具栏遮挡 */
-  height: calc(100dvh - 60px);
+  height: calc(100dvh - 86px);
   padding: 20px 40px;
   display: flex;
 }
@@ -662,10 +662,17 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
 }
+/* 输入区做成悬浮玻璃条：与卡片之间留出缝隙，层次比“贴边一条分割线”更清楚 */
 .chat-foot {
-  padding: 10px 20px 16px;
-  border-top: 1px solid var(--pv-border);
-  background: var(--pv-glass-strong);
+  margin: 0 14px 14px;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--pv-glass-line);
+  border-radius: var(--pv-radius);
+  background-color: var(--pv-glass-2);
+  background-image: var(--pv-glass-sheen);
+  backdrop-filter: var(--pv-glass-blur-sm);
+  -webkit-backdrop-filter: var(--pv-glass-blur-sm);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 10px 24px -12px rgba(24, 32, 48, 0.2);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -693,7 +700,7 @@ onUnmounted(() => {
 .bubble {
   position: relative;
   max-width: 65%;
-  background: #fff;
+  background: var(--pv-surface);
   border-radius: 2px 10px 10px 10px;
   padding: 9px 12px;
   box-shadow: var(--pv-shadow-sm);
@@ -814,7 +821,7 @@ onUnmounted(() => {
   width: 90px;
   height: 90px;
   border-radius: 8px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--pv-border);
   overflow: hidden;
   display: flex;
