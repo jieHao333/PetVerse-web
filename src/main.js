@@ -5,8 +5,12 @@ import App from './App.vue'
 import router from './router'
 import { getMe } from './api/user'
 import { isLoggedIn, updateAuthUser } from './utils/auth'
+import { initTracker } from './utils/track'
 
 createApp(App).use(router).mount('#app')
+
+// 行为埋点：页面浏览 + 定时/满批/卸载兜底上报，供数据中台采集（失败静默，不影响业务）
+initTracker(router)
 
 /**
  * 启动时静默校验一次登录态

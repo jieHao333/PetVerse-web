@@ -5,6 +5,7 @@ import { Search, ShoppingCart } from '@element-plus/icons-vue'
 import { pageProducts } from '@/api/shop'
 import { getRecommendations, readRecommendCache, writeRecommendCache } from '@/api/ai'
 import { authVersion, isLoggedIn, requireLogin } from '@/utils/auth'
+import { trackExposure, trackClick, trackSearch } from '@/utils/track'
 
 const router = useRouter()
 
@@ -93,6 +94,7 @@ const loadRecommend = async () => {
     const items = (data.items || []).filter((i) => i.type === 'product')
     recommendItems.value = items
     writeRecommendCache('shop', { items, summary: data.summary })
+    trackRecommendExposure(items)
   } catch (e) {
     if (e.isAuth) {
       resetRecommend()
@@ -106,6 +108,7 @@ const loadRecommend = async () => {
 }
 
 const onSearch = () => {
+  if (keyword.value) trackSearch(keyword.value, 'shop')
   pageNum.value = 1
   loadProducts()
 }
@@ -115,8 +118,14 @@ const onSizeChange = () => {
   loadProducts()
 }
 
+// 推荐曝光埋点：上报每条商品曝光（含位置与物种），供数据中台计算 CTR 与物种亲和度
+const trackRecommendExposure = (items) => {
+  (items || []).forEach((it, idx) => trackExposure('product', it.id, 'shop', idx, it.species))
+}
+
 // 点击商品新标签页打开商品详情页（加购/直接购买/评价均在详情页内完成）
 const openDetail = (item) => {
+  trackClick('product', item.id, 'shop', undefined, item.species)
   const { href } = router.resolve(`/shop/product/${item.id}`)
   window.open(href, '_blank')
 }

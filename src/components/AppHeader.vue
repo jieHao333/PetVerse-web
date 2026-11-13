@@ -50,6 +50,7 @@ const NAV_ITEMS = [
   { path: '/admin/coupons', label: '优惠券管理', roles: ['ADMIN'] },
   { path: '/admin/merchant-manage', label: '商家管理', roles: ['ADMIN'] },
   { path: '/admin/merchant-audit', label: '入驻审批', roles: ['ADMIN'] },
+  { path: '/admin/bi', label: '数据看板', roles: ['ADMIN'] },
 ]
 
 /** 按当前角色过滤主导航：无 roles 的项所有人可见 */

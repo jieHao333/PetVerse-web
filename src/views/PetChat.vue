@@ -26,6 +26,7 @@ import {
   uploadChatMedia,
 } from '@/api/ai'
 import { petAgeInfo, petHealthText, realPetMonths } from '@/utils/pet'
+import { trackAiFeedback } from '@/utils/track'
 
 // 当前时间戳（秒），本地新消息使用
 const nowSec = () => Math.floor(Date.now() / 1000)
@@ -345,6 +346,15 @@ const onMsgScroll = ({ scrollTop }) => {
 const jumpToLatest = () => {
   stickBottom.value = true
   scrollToBottom(true)
+}
+
+// AI 回答反馈：有用/无用，本地标记并上报数据中台（构成 AI 采纳率指标与反馈闭环）
+const onFeedback = (item, val) => {
+  if (!item || !item.msg) return
+  item.msg.feedback = item.msg.feedback === val ? 0 : val
+  if (item.msg.feedback !== 0) {
+    trackAiFeedback(currentSessionId.value, item.msg.id ?? item.idx, item.msg.feedback)
+  }
 }
 
 // 复制回答：优先用异步剪贴板，非安全上下文或权限被拒时回退到临时 textarea
@@ -1127,6 +1137,22 @@ const onEnterKey = (e) => {
                             <el-icon :size="13"><CopyDocument /></el-icon>
                           </button>
                         </el-tooltip>
+                        <template v-if="!item.msg.thinking && item.msg.content">
+                          <button
+                            type="button"
+                            class="msg-fb"
+                            :class="{ active: item.msg.feedback === 1 }"
+                            aria-label="有用"
+                            @click="onFeedback(item, 1)"
+                          >有用</button>
+                          <button
+                            type="button"
+                            class="msg-fb"
+                            :class="{ active: item.msg.feedback === -1 }"
+                            aria-label="无用"
+                            @click="onFeedback(item, -1)"
+                          >无用</button>
+                        </template>
                       </div>
                       <div
                         class="bubble"
@@ -2093,6 +2119,25 @@ const onEnterKey = (e) => {
 .msg-copy:hover {
   background: rgba(116, 132, 160, 0.14);
   color: var(--pv-ink);
+}
+.msg-fb {
+  margin-left: 4px;
+  padding: 1px 8px;
+  border: 1px solid rgba(116, 132, 160, 0.3);
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(86, 93, 107, 0.75);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.msg-fb:hover {
+  background: rgba(116, 132, 160, 0.14);
+  color: var(--pv-ink);
+}
+.msg-fb.active {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
 }
 
 /* 气泡本体：统一的圆角尺度与行高，只靠"材质 + 朝向"区分角色 */

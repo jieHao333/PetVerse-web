@@ -62,6 +62,13 @@ const router = createRouter({
           component: () => import('@/views/AdminCoupons.vue'),
           meta: { requiresAuth: true, roles: ['ADMIN'] },
         },
+        {
+          // 数据中台 BI 看板：资产总量/指标趋势/热门商品/画像与事件明细，仅管理员
+          path: 'admin/bi',
+          name: 'adminBi',
+          component: () => import('@/views/AdminBi.vue'),
+          meta: { requiresAuth: true, roles: ['ADMIN'] },
+        },
         { path: 'profile', name: 'profile', component: () => import('@/views/Profile.vue') },
         { path: 'notifications', name: 'notifications', component: () => import('@/views/Notifications.vue') },
         { path: 'user/:id', name: 'userProfile', component: () => import('@/views/UserProfile.vue') },

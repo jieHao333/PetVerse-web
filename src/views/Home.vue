@@ -8,6 +8,7 @@ import { getMe } from '@/api/user'
 import { listMyPets, renamePet, signIn } from '@/api/pet'
 import { getRecommendations, readRecommendCache, writeRecommendCache } from '@/api/ai'
 import { authVersion, isLoggedIn, requireLogin, updateAuthUser } from '@/utils/auth'
+import { trackExposure, trackClick } from '@/utils/track'
 
 const router = useRouter()
 
@@ -184,6 +185,7 @@ const loadRecommend = async () => {
     recommendItems.value = data.items || []
     recommendSummary.value = data.summary || ''
     writeRecommendCache('home', data)
+    trackRecommendExposure(recommendItems.value)
   } catch (e) {
     if (e.isAuth) {
       // 登录态失效：推荐属于个人化数据，旧缓存一并丢弃，交给 resetUserState 收拾残局
@@ -251,8 +253,14 @@ const likeText = (item) => {
   return count > 0 ? `${count} 人点赞` : '等你来点赞'
 }
 
+// 推荐曝光埋点：feed 渲染即上报每条曝光（含位置与物种），供数据中台计算 CTR 与物种亲和度
+const trackRecommendExposure = (items) => {
+  (items || []).forEach((it, idx) => trackExposure(it.type, it.id, 'home', idx, it.species))
+}
+
 // 点击推荐项：新标签页打开 —— 商品进商品详情页，动态进动态详情页（异常缺 id 时退回圈子列表）
-const openRecommend = (item) => {
+const openRecommend = (item, index) => {
+  trackClick(item.type, item.id, 'home', index, item.species)
   if (item.type === 'product') {
     window.open(router.resolve(`/shop/product/${item.id}`).href, '_blank')
   } else if (item.id) {
@@ -462,7 +470,7 @@ const onSignIn = async () => {
             :key="`${item.type}-${item.id}`"
             class="recommend-card"
             :style="{ animationDelay: `${Math.min(index, 5) * 35}ms` }"
-            @click="openRecommend(item)"
+            @click="openRecommend(item, index)"
           >
             <div class="recommend-cover">
               <!-- 封面统一走 coverOf：动态取第一张图片、无图用默认封面，商品沿用主图 -->
