@@ -137,24 +137,14 @@ const onSubmit = async () => {
 <style scoped>
 .auth-page {
   position: relative;
-  /* 建立独立层叠上下文：下方的极光层用 z-index:-1 挂在页面底，不会漏到内容之上 */
+  /* 建立独立层叠上下文：装饰层都收在这个上下文里，不会漏到内容之上 */
   isolation: isolate;
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   overflow: hidden;
-  background: transparent;
-}
-/* 登录/注册是全站唯一保留极光色场的页面，作为页面局部装饰层铺在最底层；
-   登录后的主界面统一使用中性纯色背景 */
-.auth-page::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-color: #f7f8fb;
-  background-image: var(--pv-aurora-image);
+  /* 与全站一致的中性纯色底，不做渐变：质感交给玻璃、颗粒与光影 */
+  background: var(--pv-bg);
 }
 
 .bg-glow {
