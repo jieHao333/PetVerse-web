@@ -3,6 +3,58 @@ import router from '@/router'
 import { clearAuth, currentUser, getToken } from '@/utils/auth'
 import { userScopedKey } from '@/utils/userCache'
 
+// 流阶段看门狗时长（ms）：服务端心跳间隔 15s，超过 25s 没有任何字节说明链路已静默中断
+const STREAM_WATCHDOG_MS = 25000
+
+/**
+ * 分发一个 SSE 事件块（可能含多行 data:），把事件转成对应回调。
+ *
+ * 抽成独立函数是为了让「发起对话」与「审批续流」两条链路共用同一套事件语义：
+ * 新增事件类型只改这里，不会出现一边认识、另一边把它当未知事件丢掉的情况。
+ *
+ * @param {string} block 以空行分隔的单个事件块
+ * @param {Object} handlers 回调集合（onMeta / onRefs / onDelta / onApproval / onDone / onError）
+ * @returns {{ seen: boolean, terminated: boolean }} seen 表示块内存在可解析事件；
+ *   terminated 表示已收到终止事件（done / error / approval），调用方应停止读取
+ */
+function dispatchSseBlock(block, handlers) {
+  const { onMeta, onRefs, onDelta, onApproval, onDone, onError } = handlers
+  let seen = false
+  for (const rawLine of block.split('\n')) {
+    const line = rawLine.trim()
+    // 跳过空行与以 : 开头的心跳注释行
+    if (!line || line.startsWith(':') || !line.startsWith('data:')) continue
+    const payload = line.slice(5).trim()
+    if (!payload) continue
+    let evt
+    try {
+      evt = JSON.parse(payload)
+    } catch {
+      continue // 非 JSON 数据行，忽略
+    }
+    seen = true
+    if (evt.type === 'meta') {
+      onMeta?.({ sessionId: evt.sessionId })
+    } else if (evt.type === 'refs') {
+      // RAG 检索来源：在答案首字之前到达，同一轮可能收到多次（以最后一次为准）
+      onRefs?.(evt.items || [])
+    } else if (evt.type === 'delta') {
+      onDelta?.(evt.content || '')
+    } else if (evt.type === 'approval') {
+      // 敏感操作挂起：这是本轮的终止帧（没有 done），等用户审批后由 approveChat 续流
+      onApproval?.(evt)
+      return { seen, terminated: true }
+    } else if (evt.type === 'done') {
+      onDone?.()
+      return { seen, terminated: true }
+    } else if (evt.type === 'error') {
+      onError?.(evt.msg || 'AI 服务暂时开小差了')
+      return { seen, terminated: true }
+    }
+  }
+  return { seen, terminated: false }
+}
+
 /**
  * AI养宠 · 流式对话（SSE）
  *
@@ -12,6 +64,7 @@ import { userScopedKey } from '@/utils/userCache'
  * 响应帧格式（事件之间以空行 \n\n 分隔，每行 data: 开头，可能夹杂以 : 开头的心跳注释行）：
  *   data: {"type":"meta","sessionId":1}       首帧会话元信息（后端自动新建会话时前端据此绑定）
  *   data: {"type":"delta","content":"你好"}   增量内容（多次）
+ *   data: {"type":"approval","title":...}    敏感操作挂起，等待用户审批（本轮没有 done）
  *   data: {"type":"done"}                    正常结束
  *   data: {"type":"error","msg":"..."}      服务端异常
  *
@@ -31,21 +84,21 @@ import { userScopedKey } from '@/utils/userCache'
  * @param {Array} [options.attachments] 多模态附件列表 [{ type, url, mime, name, size }]，
  *   由 uploadChatMedia 上传后获得；图片走视觉模型、音频自动转写、视频以文字占位
  * @param {Function} [options.onMeta] 会话元信息回调：({ sessionId }) => void
+ * @param {Function} [options.onRefs] RAG 引用回调：(items) => void
  * @param {Function} [options.onDelta] 增量回调：(content) => void
+ * @param {Function} [options.onApproval] 人工审批挂起回调：(evt) => void，evt 含 approvalId/title/summary
  * @param {Function} [options.onDone] 正常结束回调：() => void
  * @param {Function} [options.onError] 异常回调：(msg) => void
  * @param {Function} [options.onRetry] 连接阶段自动重连回调：(attempt) => void，attempt 从 1 开始
  * @returns {{ abort: () => void }} 中断控制器，供「停止生成」按钮调用
  */
-export function chatStream({ message, pet, sessionId, attachments, onMeta, onRefs, onDelta, onDone, onError, onRetry }) {
+export function chatStream({ message, pet, sessionId, attachments, onMeta, onRefs, onDelta, onApproval, onDone, onError, onRetry }) {
   const controller = new AbortController()
 
   // 连接阶段重试的退避间隔（ms）：总尝试次数 = 间隔数 + 1
   const RETRY_DELAYS = [1000, 2000]
   // 连接阶段看门狗：超过该时长未拿到响应头视为网络故障（fetch 本身可能无限挂起）
   const CONNECT_TIMEOUT_MS = 10000
-  // 流阶段看门狗：服务端心跳间隔为 15s，超过 25s 没有任何字节说明链路已静默中断
-  const STREAM_WATCHDOG_MS = 25000
 
   let gotResponse = false   // 是否已收到响应头（收到后不再自动重试）
   let gotEvent = false      // 是否已收到任何 SSE 事件（用于区分中断话术）
@@ -137,36 +190,11 @@ export function chatStream({ message, pet, sessionId, attachments, onMeta, onRef
       }, STREAM_WATCHDOG_MS)
     }
 
-    // 解析单个事件块（可能多行），按事件类型触发回调
+    // 解析单个事件块（可能多行），按事件类型触发回调；事件语义统一见 dispatchSseBlock
     const dispatchBlock = (block) => {
-      for (const rawLine of block.split('\n')) {
-        const line = rawLine.trim()
-        // 跳过空行与以 : 开头的心跳注释行
-        if (!line || line.startsWith(':') || !line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (!payload) continue
-        let evt
-        try {
-          evt = JSON.parse(payload)
-        } catch {
-          continue // 非 JSON 数据行，忽略
-        }
-        gotEvent = true
-        if (evt.type === 'meta') {
-          onMeta?.({ sessionId: evt.sessionId })
-        } else if (evt.type === 'refs') {
-          // RAG 检索来源：在答案首字之前到达，同一轮可能收到多次（以最后一次为准）
-          onRefs?.(evt.items || [])
-        } else if (evt.type === 'delta') {
-          onDelta?.(evt.content || '')
-        } else if (evt.type === 'done') {
-          terminated = true
-          onDone?.()
-        } else if (evt.type === 'error') {
-          terminated = true
-          onError?.(evt.msg || 'AI 服务暂时开小差了')
-        }
-      }
+      const result = dispatchSseBlock(block, { onMeta, onRefs, onDelta, onApproval, onDone, onError })
+      if (result.seen) gotEvent = true
+      if (result.terminated) terminated = true
     }
 
     try {
@@ -229,6 +257,139 @@ export function chatStream({ message, pet, sessionId, attachments, onMeta, onRef
         return
       }
     }
+  }
+
+  run()
+
+  return {
+    abort: () => controller.abort(),
+  }
+}
+
+/**
+ * AI养宠 · 人工审批敏感操作，并从挂起点继续这一轮对话（SSE）
+ *
+ * 服务端在工具真正写库前调用 `interrupt()` 挂起整张图，通过 `approval` 帧把「要做什么、
+ * 对象是谁、内容是什么」下发；用户点「同意 / 拒绝」后由本函数提交决定，并继续接收
+ * 剩余回答的 delta。**审批发生在一次独立的用户请求里，模型无法自己「点同意」。**
+ *
+ * 不做自动重试：审批是有副作用的动作，重发可能对应两次决定；失败时交由用户重新点击。
+ *
+ * @param {Object} options
+ * @param {number|string} options.sessionId 会话 ID（approval 帧所属会话）
+ * @param {string} [options.approvalId] 审批单 ID（approval 帧的 approvalId，用于防重放）
+ * @param {boolean} options.approved 是否批准
+ * @param {string} [options.reason] 拒绝原因（可选），会转述给用户与模型，最多 200 字
+ * @param {Function} [options.onMeta] 会话元信息回调
+ * @param {Function} [options.onRefs] RAG 引用回调
+ * @param {Function} [options.onDelta] 续流增量回调：(content) => void
+ * @param {Function} [options.onApproval] 续流中再次挂起时的回调
+ * @param {Function} [options.onDone] 续流结束回调
+ * @param {Function} [options.onError] 异常回调：(msg) => void
+ * @returns {{ abort: () => void }} 中断控制器
+ */
+export function approveChat({ sessionId, approvalId, approved, reason = '', onMeta, onRefs, onDelta, onApproval, onDone, onError }) {
+  const controller = new AbortController()
+  const handlers = { onMeta, onRefs, onDelta, onApproval, onDone, onError }
+  let gotEvent = false
+
+  const run = async () => {
+    let response
+    try {
+      const token = getToken()
+      response = await fetch('/api/ai/chat/approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          sessionId: Number(sessionId),
+          approvalId: approvalId || '',
+          approved: !!approved,
+          reason: (reason || '').slice(0, 200),
+        }),
+        signal: controller.signal,
+      })
+    } catch (e) {
+      if (e?.name === 'AbortError') return
+      onError?.('网络异常，审批未提交，请重试')
+      return
+    }
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        clearAuth()
+        router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
+        onError?.('登录已失效，请重新登录')
+      } else {
+        onError?.('AI 服务暂时不可用，请稍后再试')
+      }
+      return
+    }
+
+    // 非 SSE：审批单过期 / 已被处理等业务错误走 JSON Result，需要把 msg 透传给用户
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('text/event-stream')) {
+      let result = null
+      try {
+        result = await response.json()
+      } catch {
+        // 非 JSON 兜底：按服务暂不可用处理
+      }
+      onError?.(result?.msg || '审批已失效，请重新发送消息')
+      return
+    }
+
+    if (!response.body) {
+      onError?.('当前浏览器不支持流式对话')
+      return
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    let terminated = false
+    let streamTimer = null
+    const armStreamWatchdog = () => {
+      clearTimeout(streamTimer)
+      streamTimer = setTimeout(() => controller.abort(), STREAM_WATCHDOG_MS)
+    }
+
+    try {
+      armStreamWatchdog()
+      while (!terminated) {
+        const { done, value } = await reader.read()
+        if (done) break
+        armStreamWatchdog()
+        buffer += decoder.decode(value, { stream: true })
+        const blocks = buffer.split('\n\n')
+        buffer = blocks.pop() || ''
+        for (const block of blocks) {
+          if (terminated) break
+          const result = dispatchSseBlock(block, handlers)
+          if (result.seen) gotEvent = true
+          if (result.terminated) terminated = true
+        }
+      }
+    } catch (e) {
+      if (e?.name === 'AbortError') return
+      onError?.(gotEvent ? '网络连接中断，审批结果未知，请重新发送消息确认' : '网络异常，审批未提交，请重试')
+      return
+    } finally {
+      clearTimeout(streamTimer)
+    }
+
+    if (terminated) {
+      reader.cancel().catch(() => {})
+      return
+    }
+    buffer += decoder.decode()
+    if (buffer.trim()) {
+      const result = dispatchSseBlock(buffer, handlers)
+      if (result.terminated) terminated = true
+    }
+    if (!terminated) onDone?.()
   }
 
   run()

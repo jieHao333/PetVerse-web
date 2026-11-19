@@ -18,6 +18,7 @@ import PetOnboardingDialog from '@/components/PetOnboardingDialog.vue'
 import { getMyPet, listMyPets } from '@/api/pet'
 import {
   chatStream,
+  approveChat,
   getChatHistory,
   listChatSessions,
   deleteChatSession,
@@ -142,7 +143,8 @@ const currentSessionId = ref(null) // 当前会话 ID；null 表示待创建的�
 const loadingPet = ref(true) // 宠物信息加载中
 const loadingSessions = ref(false) // 会话列表加载中
 const loadingHistory = ref(false) // 历史对话加载中
-// 会话消息列表：[{ role: 'user' | 'assistant', content, ts, thinking, stopped, error, failed }]
+// 会话消息列表：[{ role: 'user' | 'assistant', content, ts, thinking, stopped, error, failed, approval }]
+// approval 为人工审批卡片：{ approvalId, title, summary, status, deciding, reason, error }
 const messages = ref([])
 const inputText = ref('') // 输入框内容
 const sending = ref(false) // 是否正在流式生成中
@@ -396,7 +398,24 @@ const isStreaming = (view) =>
   view.idx === messages.value.length - 1 &&
   view.msg.role === 'assistant' &&
   !view.msg.thinking &&
-  !view.msg.failed
+  !view.msg.failed &&
+  !view.msg.approval
+
+// 末尾回复是否正在等待人工审批：等待期间维持「生成中」状态——
+// 服务端这一轮还挂在 checkpoint 上，此时发新消息会打乱同一 thread 的现场。
+// 提交决定后（deciding 非空）仍算「进行中」，避免续流过程中出现停止按钮。
+const pendingApproval = computed(() => {
+  const last = messages.value[messages.value.length - 1]
+  if (last?.role !== 'assistant' || !last.approval) return null
+  const { status, deciding } = last.approval
+  return status === 'pending' || deciding ? last : null
+})
+
+// 审批卡片状态文案：pending 待确认 / approved 已同意 / rejected 已拒绝
+const approvalStatusText = (status) =>
+  ({ pending: '待确认', approved: '已同意', rejected: '已拒绝', expired: '已失效' }[status] || '待确认')
+const approvalTagType = (status) =>
+  ({ pending: 'warning', approved: 'success', rejected: 'info', expired: 'danger' }[status] || 'warning')
 
 // 结束一次流式交互：恢复输入态并停在最新消息
 const finishStream = () => {
@@ -802,9 +821,31 @@ const sendText = (text, attachments = []) => {
       last.content += content
       scrollToBottom()
     },
-    onDone: () => {
-      // 结束时仍无任何内容：移除空气泡并轻提示
+    onApproval: (evt) => {
+      // 敏感操作挂起：本轮没有 done，气泡里挂出审批卡片，等用户点「同意 / 拒绝」
       const last = messages.value[messages.value.length - 1]
+      if (!last || last.role !== 'assistant') return
+      last.thinking = false
+      last.approval = {
+        approvalId: evt.approvalId || '',
+        action: evt.action || '',
+        title: evt.title || '需要你确认',
+        summary: Array.isArray(evt.summary) ? evt.summary : [],
+        status: 'pending', // pending / approved / rejected / expired
+        deciding: null, // 'approve' | 'reject'，提交中的按钮态
+        reason: '',
+        error: '',
+      }
+      scrollToBottom()
+    },
+    onDone: () => {
+      // 挂起等审批：这一轮一个字都没说也正常，气泡不能删——审批卡片就挂在它下面
+      const last = messages.value[messages.value.length - 1]
+      if (last?.role === 'assistant' && last.approval?.status === 'pending') {
+        scrollToBottom()
+        return
+      }
+      // 结束时仍无任何内容：移除空气泡并轻提示
       if (last?.role === 'assistant' && !last.content && !last.error) {
         messages.value.pop()
         ElMessage.warning('顾问暂时没有回应，换个说法试试吧')
@@ -832,8 +873,46 @@ const sendText = (text, attachments = []) => {
   })
 }
 
+// 提交人工审批决定：同意 / 拒绝都会从挂起点续流，把这一轮答完。
+// 不自动重试——重发等于用户做了两次决定；失败时把状态退回「待确认」让用户重点。
+const decideApproval = (approved) => {
+  const last = messages.value[messages.value.length - 1]
+  const ap = last?.approval
+  if (!ap || ap.status !== 'pending' || ap.deciding) return
+  ap.deciding = approved ? 'approve' : 'reject'
+  ap.status = approved ? 'approved' : 'rejected'
+  ap.error = ''
+  streamCtrl = approveChat({
+    sessionId: currentSessionId.value,
+    approvalId: ap.approvalId,
+    approved,
+    reason: approved ? '' : (ap.reason || '').trim(),
+    onDelta: (content) => {
+      // 续流同样可能有正文（如「已发布，可在圈子看到」），追加到同一个气泡
+      if (last.thinking) last.thinking = false
+      last.content += content
+      scrollToBottom()
+    },
+    onDone: () => {
+      ap.deciding = null
+      finishStream()
+      refreshSessions()
+    },
+    onError: (msg) => {
+      // 决定没有送达服务端：挂起现场还在，退回待确认让用户重新提交
+      ap.deciding = null
+      ap.status = 'pending'
+      ap.error = msg
+      ElMessage.error(msg)
+      scrollToBottom()
+    },
+  })
+}
+
 // 停止生成：中断请求，保留已生成的部分并标注「（已停止）」
 const handleStop = () => {
+  // 审批挂起时不允许「停止」：这一轮还挂在服务端，中断只会让用户失去卡片
+  if (pendingApproval.value) return
   streamCtrl?.abort()
   const last = messages.value[messages.value.length - 1]
   if (last?.role === 'assistant') {
@@ -1155,6 +1234,7 @@ const onEnterKey = (e) => {
                         </template>
                       </div>
                       <div
+                        v-show="item.msg.content || item.msg.error || !item.msg.approval"
                         class="bubble"
                         :class="{
                           thinking: item.msg.thinking,
@@ -1218,6 +1298,62 @@ const onEnterKey = (e) => {
                           <span v-if="item.msg.stopped" class="stop-mark">（已停止）</span>
                           <span v-if="item.msg.error" class="err-mark">{{ item.msg.error }}</span>
                         </template>
+                      </div>
+                      <!-- 人工审批卡片：发布等敏感操作在写库前挂起，用户点「同意」后才真正执行 -->
+                      <div
+                        v-if="item.msg.role === 'assistant' && item.msg.approval"
+                        class="approval-card"
+                        :class="item.msg.approval.status"
+                      >
+                        <div class="approval-head">
+                          <span class="approval-badge">需要你确认</span>
+                          <span class="approval-title">{{ item.msg.approval.title }}</span>
+                          <el-tag
+                            size="small"
+                            effect="plain"
+                            :type="approvalTagType(item.msg.approval.status)"
+                          >{{ approvalStatusText(item.msg.approval.status) }}</el-tag>
+                        </div>
+                        <div v-if="item.msg.approval.summary.length" class="approval-rows">
+                          <div
+                            v-for="(row, rIdx) in item.msg.approval.summary"
+                            :key="rIdx"
+                            class="approval-row"
+                          >
+                            <span class="approval-label">{{ row.label }}</span>
+                            <span class="approval-value">{{ row.value }}</span>
+                          </div>
+                        </div>
+                        <div v-else class="approval-hint">确认后该操作会立即生效。</div>
+                        <el-input
+                          v-if="item.msg.approval.status === 'pending'"
+                          v-model="item.msg.approval.reason"
+                          size="small"
+                          maxlength="200"
+                          placeholder="拒绝原因（可选，会转告顾问）"
+                          class="approval-reason"
+                        />
+                        <div v-if="item.msg.approval.status === 'pending'" class="approval-actions">
+                          <el-button
+                            size="small"
+                            round
+                            :loading="item.msg.approval.deciding === 'reject'"
+                            @click="decideApproval(false)"
+                          >拒绝</el-button>
+                          <el-button
+                            size="small"
+                            type="primary"
+                            round
+                            :loading="item.msg.approval.deciding === 'approve'"
+                            @click="decideApproval(true)"
+                          >同意并继续</el-button>
+                        </div>
+                        <div v-else class="approval-hint">
+                          {{ item.msg.approval.status === 'approved' ? '已同意，正在执行…' : '已拒绝，该操作不会执行' }}
+                        </div>
+                        <div v-if="item.msg.approval.error" class="approval-error">
+                          {{ item.msg.approval.error }}
+                        </div>
                       </div>
                       <!-- RAG 引用来源：这条回答依据的知识库文档（文档名 / 类型 / 小节 / 相关度） -->
                       <div
@@ -1340,10 +1476,11 @@ const onEnterKey = (e) => {
                   <span>发送</span>
                   <el-icon :size="13"><Promotion /></el-icon>
                 </button>
-                <button v-else type="button" class="send-btn stop-btn" @click="handleStop">
+                <button v-else-if="!pendingApproval" type="button" class="send-btn stop-btn" @click="handleStop">
                   <span class="stop-icon" aria-hidden="true"></span>
                   <span>停止</span>
                 </button>
+                <span v-else class="send-btn pending-btn">待确认</span>
               </div>
               <!-- 输入提示行：桌面端给快捷键与字数；移动端只在有内容时显示字数，
                    空输入时整行收起，避免胶囊底部多出一条空白 -->
@@ -2395,6 +2532,83 @@ const onEnterKey = (e) => {
   font-size: 12px;
 }
 
+/* 人工审批卡片：挂在助手气泡下方，用暖色描边把「需要你决定」与普通回答区分开 */
+.approval-card {
+  max-width: 520px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(214, 158, 46, 0.38);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 251, 240, 0.94) 0%, rgba(255, 255, 255, 0.88) 100%);
+  box-shadow: 0 12px 26px -22px rgba(24, 32, 48, 0.45);
+}
+.approval-card.approved {
+  border-color: rgba(103, 194, 58, 0.4);
+}
+.approval-card.rejected {
+  border-color: rgba(144, 147, 153, 0.36);
+}
+.approval-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.approval-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(214, 158, 46, 0.16);
+  color: #a97612;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.approval-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--pv-text-primary, #1f2330);
+}
+.approval-rows {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+.approval-row {
+  display: flex;
+  gap: 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.approval-label {
+  flex: 0 0 56px;
+  color: var(--pv-text-secondary, #6b7280);
+}
+.approval-value {
+  flex: 1;
+  color: var(--pv-text-primary, #1f2330);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.approval-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--pv-text-secondary, #6b7280);
+}
+.approval-reason {
+  margin-top: 10px;
+}
+.approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.approval-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--el-color-danger, #c45656);
+}
+
 /* RAG 引用来源：回答下方的折叠条（文档名 / 类型 / 小节 / 相关度 / 摘要） */
 .refs {
   margin-top: 8px;
@@ -2703,6 +2917,14 @@ const onEnterKey = (e) => {
   border-radius: 2px;
   background: #c45656;
   box-shadow: 0 0 0 3px rgba(196, 86, 86, 0.12);
+}
+/* 审批挂起时同一位置只报状态，不给动作：这一轮还挂在服务端，不能发送也不能停止 */
+.pending-btn {
+  background: rgba(214, 158, 46, 0.14);
+  border-color: rgba(214, 158, 46, 0.24);
+  color: #a97612;
+  box-shadow: none;
+  cursor: default;
 }
 
 /* 输入提示行：桌面给快捷键，移动端只留字数 */
