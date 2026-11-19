@@ -285,7 +285,8 @@ export function chatStream({ message, pet, sessionId, attachments, onMeta, onRef
  * @param {Function} [options.onDelta] 续流增量回调：(content) => void
  * @param {Function} [options.onApproval] 续流中再次挂起时的回调
  * @param {Function} [options.onDone] 续流结束回调
- * @param {Function} [options.onError] 异常回调：(msg) => void
+ * @param {Function} [options.onError] 异常回调：(msg, opts) => void；
+ *   opts.fatal=true 表示审批单已失效 / 已被消费，重试没有意义，调用方应收起审批卡片
  * @returns {{ abort: () => void }} 中断控制器
  */
 export function approveChat({ sessionId, approvalId, approved, reason = '', onMeta, onRefs, onDelta, onApproval, onDone, onError }) {
@@ -312,8 +313,8 @@ export function approveChat({ sessionId, approvalId, approved, reason = '', onMe
         signal: controller.signal,
       })
     } catch (e) {
-      if (e?.name === 'AbortError') return
-      onError?.('网络异常，审批未提交，请重试')
+      // 看门狗超时也会走这里：不能静默返回，否则界面会永远停在「执行中」
+      onError?.(e?.name === 'AbortError' ? '审批响应超时，请重试' : '网络异常，审批未提交，请重试')
       return
     }
 
@@ -321,9 +322,11 @@ export function approveChat({ sessionId, approvalId, approved, reason = '', onMe
       if (response.status === 401) {
         clearAuth()
         router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
-        onError?.('登录已失效，请重新登录')
+        onError?.('登录已失效，请重新登录', { fatal: true })
       } else {
-        onError?.('AI 服务暂时不可用，请稍后再试')
+        // 4xx 是请求本身的问题（如审批单不存在），重试也不会成功；5xx 允许重试
+        onError?.('AI 服务暂时不可用，请稍后再试',
+          { fatal: response.status >= 400 && response.status < 500 })
       }
       return
     }
@@ -337,7 +340,7 @@ export function approveChat({ sessionId, approvalId, approved, reason = '', onMe
       } catch {
         // 非 JSON 兜底：按服务暂不可用处理
       }
-      onError?.(result?.msg || '审批已失效，请重新发送消息')
+      onError?.(result?.msg || '审批已失效，请重新发送消息', { fatal: true })
       return
     }
 
@@ -373,8 +376,16 @@ export function approveChat({ sessionId, approvalId, approved, reason = '', onMe
         }
       }
     } catch (e) {
-      if (e?.name === 'AbortError') return
-      onError?.(gotEvent ? '网络连接中断，审批结果未知，请重新发送消息确认' : '网络异常，审批未提交，请重试')
+      if (e?.name === 'AbortError') {
+        // 看门狗超时：审批可能已经送达并执行，不能静默收场
+        onError?.('审批响应超时，结果未知，请刷新会话确认')
+        return
+      }
+      // 已收到过事件说明审批大概率已被消费，重试只会拿到「没有待审批」
+      onError?.(
+        gotEvent ? '网络连接中断，审批结果未知，请刷新会话确认' : '网络异常，审批未提交，请重试',
+        { fatal: gotEvent },
+      )
       return
     } finally {
       clearTimeout(streamTimer)

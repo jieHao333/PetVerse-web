@@ -411,12 +411,6 @@ const pendingApproval = computed(() => {
   return status === 'pending' || deciding ? last : null
 })
 
-// 审批卡片状态文案：pending 待确认 / approved 已同意 / rejected 已拒绝
-const approvalStatusText = (status) =>
-  ({ pending: '待确认', approved: '已同意', rejected: '已拒绝', expired: '已失效' }[status] || '待确认')
-const approvalTagType = (status) =>
-  ({ pending: 'warning', approved: 'success', rejected: 'info', expired: 'danger' }[status] || 'warning')
-
 // 结束一次流式交互：恢复输入态并停在最新消息
 const finishStream = () => {
   sending.value = false
@@ -895,12 +889,27 @@ const decideApproval = (approved) => {
     },
     onDone: () => {
       ap.deciding = null
+      // 审批卡片只服务于「做决定」这一刻：这一轮结束就收起，结果交给顾问的回答承载。
+      // 否则卡片会一直停在「正在执行…」，用户只能刷新页面才消失。
+      last.approval = null
+      // 极端情况下续流没有任何正文：补一条结果回执，避免留下空气泡
+      if (!last.content) {
+        last.content = approved ? '已按你的确认执行。' : '已取消，本次操作没有执行。'
+      }
       finishStream()
       refreshSessions()
     },
-    onError: (msg) => {
-      // 决定没有送达服务端：挂起现场还在，退回待确认让用户重新提交
+    onError: (msg, opts = {}) => {
       ap.deciding = null
+      if (opts.fatal) {
+        // 审批单已失效 / 已被消费：重试没有意义，收起卡片并把原因留在气泡里
+        last.approval = null
+        if (!last.content) last.content = msg
+        ElMessage.error(msg)
+        finishStream()
+        return
+      }
+      // 网络类失败：挂起现场还在，退回待确认让用户重新提交
       ap.status = 'pending'
       ap.error = msg
       ElMessage.error(msg)
@@ -1299,20 +1308,16 @@ const onEnterKey = (e) => {
                           <span v-if="item.msg.error" class="err-mark">{{ item.msg.error }}</span>
                         </template>
                       </div>
-                      <!-- 人工审批卡片：发布等敏感操作在写库前挂起，用户点「同意」后才真正执行 -->
+                      <!-- 人工审批卡片：只在「等你做决定」时出现；点完同意/拒绝立刻收起，
+                           结果由顾问的回答说明，避免卡片一直挂在页面上 -->
                       <div
-                        v-if="item.msg.role === 'assistant' && item.msg.approval"
+                        v-if="item.msg.role === 'assistant' && item.msg.approval?.status === 'pending'"
                         class="approval-card"
-                        :class="item.msg.approval.status"
                       >
                         <div class="approval-head">
                           <span class="approval-badge">需要你确认</span>
                           <span class="approval-title">{{ item.msg.approval.title }}</span>
-                          <el-tag
-                            size="small"
-                            effect="plain"
-                            :type="approvalTagType(item.msg.approval.status)"
-                          >{{ approvalStatusText(item.msg.approval.status) }}</el-tag>
+                          <el-tag size="small" effect="plain" type="warning">待确认</el-tag>
                         </div>
                         <div v-if="item.msg.approval.summary.length" class="approval-rows">
                           <div
@@ -1326,14 +1331,13 @@ const onEnterKey = (e) => {
                         </div>
                         <div v-else class="approval-hint">确认后该操作会立即生效。</div>
                         <el-input
-                          v-if="item.msg.approval.status === 'pending'"
                           v-model="item.msg.approval.reason"
                           size="small"
                           maxlength="200"
                           placeholder="拒绝原因（可选，会转告顾问）"
                           class="approval-reason"
                         />
-                        <div v-if="item.msg.approval.status === 'pending'" class="approval-actions">
+                        <div class="approval-actions">
                           <el-button
                             size="small"
                             round
@@ -1347,9 +1351,6 @@ const onEnterKey = (e) => {
                             :loading="item.msg.approval.deciding === 'approve'"
                             @click="decideApproval(true)"
                           >同意并继续</el-button>
-                        </div>
-                        <div v-else class="approval-hint">
-                          {{ item.msg.approval.status === 'approved' ? '已同意，正在执行…' : '已拒绝，该操作不会执行' }}
                         </div>
                         <div v-if="item.msg.approval.error" class="approval-error">
                           {{ item.msg.approval.error }}
@@ -1480,7 +1481,9 @@ const onEnterKey = (e) => {
                   <span class="stop-icon" aria-hidden="true"></span>
                   <span>停止</span>
                 </button>
-                <span v-else class="send-btn pending-btn">待确认</span>
+                <span v-else class="send-btn pending-btn">
+                  {{ pendingApproval?.approval?.deciding ? '执行中' : '待确认' }}
+                </span>
               </div>
               <!-- 输入提示行：桌面端给快捷键与字数；移动端只在有内容时显示字数，
                    空输入时整行收起，避免胶囊底部多出一条空白 -->
@@ -2541,12 +2544,6 @@ const onEnterKey = (e) => {
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(255, 251, 240, 0.94) 0%, rgba(255, 255, 255, 0.88) 100%);
   box-shadow: 0 12px 26px -22px rgba(24, 32, 48, 0.45);
-}
-.approval-card.approved {
-  border-color: rgba(103, 194, 58, 0.4);
-}
-.approval-card.rejected {
-  border-color: rgba(144, 147, 153, 0.36);
 }
 .approval-head {
   display: flex;
