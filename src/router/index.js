@@ -69,6 +69,13 @@ const router = createRouter({
           component: () => import('@/views/AdminBi.vue'),
           meta: { requiresAuth: true, roles: ['ADMIN'] },
         },
+        {
+          // AI 扩展管理：为对话 Agent 接入 MCP 远程工具与 Skill 技能指令，仅管理员
+          path: 'admin/ai-extensions',
+          name: 'adminAiExtensions',
+          component: () => import('@/views/AdminAiExtensions.vue'),
+          meta: { requiresAuth: true, roles: ['ADMIN'] },
+        },
         { path: 'profile', name: 'profile', component: () => import('@/views/Profile.vue') },
         { path: 'notifications', name: 'notifications', component: () => import('@/views/Notifications.vue') },
         { path: 'user/:id', name: 'userProfile', component: () => import('@/views/UserProfile.vue') },

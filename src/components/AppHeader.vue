@@ -51,6 +51,8 @@ const NAV_ITEMS = [
   { path: '/admin/merchant-manage', label: '商家管理', roles: ['ADMIN'] },
   { path: '/admin/merchant-audit', label: '入驻审批', roles: ['ADMIN'] },
   { path: '/admin/bi', label: '数据看板', roles: ['ADMIN'] },
+  // AI 扩展（MCP 服务 / Skill 技能）是全用户共享的对话能力配置，入口只对管理员可见
+  { path: '/admin/ai-extensions', label: 'AI扩展', roles: ['ADMIN'] },
 ]
 
 /** 按当前角色过滤主导航：无 roles 的项所有人可见 */

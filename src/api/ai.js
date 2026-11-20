@@ -523,6 +523,39 @@ export const deleteKbDocument = (docId) =>
 export const reindexKb = () =>
   request.post('/ai/kb/reindex', null, { timeout: 600000 })
 
+/* ---------------- AI 扩展管理（MCP 服务 / Skill 技能，管理员限定） ----------------
+ * 网关对 /api/ai/admin/** 做 ADMIN 角色校验，ai-service 内再做一次同款校验（纵深防御）；
+ * 写操作成功后后端立即失效运行时缓存，下一轮对话即生效。
+ */
+
+/** MCP 服务列表（含停用项），data 为 { items: [{ id, name, transport, url, command, args, env, headers, description, enabled, createTime, updateTime }] } */
+export const listMcpServers = () => request.get('/ai/admin/mcp/servers')
+
+/** 新增 MCP 服务，data 为完整配置（McpServerUpsert），返回创建后的配置 */
+export const createMcpServer = (data) => request.post('/ai/admin/mcp/servers', data)
+
+/** 整体更新 MCP 服务（启停开关也走这里，提交完整配置） */
+export const updateMcpServer = (id, data) => request.put(`/ai/admin/mcp/servers/${id}`, data)
+
+/** 删除 MCP 服务 */
+export const deleteMcpServer = (id) => request.delete(`/ai/admin/mcp/servers/${id}`)
+
+/** 测试 MCP 连通性并列出其工具（连接 + 握手可能较慢，超时放宽到 30s），data 为 { toolCount, tools: [{ name, description }] } */
+export const testMcpServer = (id) =>
+  request.post(`/ai/admin/mcp/servers/${id}/test`, null, { timeout: 30000 })
+
+/** Skill 技能包列表（含停用项与正文），data 为 { items: [{ name, description, enabled, content, bodyLines, resources, updateTime }] } */
+export const listSkills = () => request.get('/ai/admin/skills')
+
+/** 新增 Skill 技能包，data 为 { name(hyphen-case), description(单行), content, enabled }，落地为 skills/<name>/SKILL.md */
+export const createSkill = (data) => request.post('/ai/admin/skills', data)
+
+/** 整体更新 Skill（按技能名；启停开关也走这里，提交完整配置；改名时后端迁移目录） */
+export const updateSkill = (name, data) => request.put(`/ai/admin/skills/${encodeURIComponent(name)}`, data)
+
+/** 删除 Skill 技能包（按技能名，整目录删除） */
+export const deleteSkill = (name) => request.delete(`/ai/admin/skills/${encodeURIComponent(name)}`)
+
 /* ---------------- 以下为新增 AI 能力（均为普通 JSON 接口，走 axios 封装） ---------------- */
 
 /**
