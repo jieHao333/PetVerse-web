@@ -27,6 +27,13 @@ const formatTime = (ts) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+// 正文预览：折叠空白后截断。Markdown 原文带换行与缩进，直接塞进单元格会撑成多行
+const contentPreview = (content) => {
+  const text = (content || '').replace(/\s+/g, ' ').trim()
+  if (!text) return '-'
+  return text.length > 64 ? `${text.slice(0, 64)}…` : text
+}
+
 // ==================== MCP 服务 ====================
 const mcpLoading = ref(false)
 const mcpServers = ref([])
@@ -362,110 +369,135 @@ onMounted(reload)
 </script>
 
 <template>
-  <div class="ext-page">
-    <header class="ext-head">
-      <div>
-        <h2 class="ext-title">AI 扩展管理</h2>
-        <p class="ext-sub">
-          为 AI 养宠顾问接入 MCP 远程工具与 Skill 技能指令，启用后对所有用户的对话生效
-        </p>
-      </div>
-      <el-button :icon="Refresh" @click="reload">刷新</el-button>
-    </header>
+  <div class="page">
+    <div class="page-container">
+      <el-card shadow="never" class="section">
+        <template #header>
+          <div class="card-header">
+            <span class="card-title">AI 扩展管理</span>
+            <div class="filters">
+              <el-button :icon="Refresh" @click="reload">刷新</el-button>
+            </div>
+          </div>
+        </template>
 
-    <el-tabs v-model="activeTab" class="ext-tabs">
-      <!-- ==================== MCP 服务 ==================== -->
-      <el-tab-pane label="MCP 服务" name="mcp">
-        <div class="tab-toolbar">
-          <p class="tab-hint">
-            MCP（Model Context Protocol）服务为模型提供额外工具。支持 Streamable HTTP / SSE 远程服务与 Stdio 本地命令；
-            建议只接入可信服务，敏感操作请谨慎评估。
-          </p>
-          <el-button :icon="Plus" type="primary" @click="openMcpCreate">新增服务</el-button>
-        </div>
+        <el-tabs v-model="activeTab" class="ext-tabs">
+          <!-- ==================== MCP 服务 ==================== -->
+          <el-tab-pane name="mcp">
+            <template #label>
+              <span class="tab-label">
+                MCP 服务
+                <span v-if="mcpServers.length" class="tab-count">{{ mcpServers.length }}</span>
+              </span>
+            </template>
 
-        <el-table v-loading="mcpLoading" :data="mcpServers" class="ext-table" empty-text="暂无 MCP 服务，点击「新增服务」接入">
-          <el-table-column label="服务" min-width="200">
-            <template #default="{ row }">
-              <div class="cell-name">{{ row.name }}</div>
-              <div v-if="row.description" class="cell-source">{{ row.description }}</div>
-            </template>
-          </el-table-column>
-          <el-table-column label="传输" width="150">
-            <template #default="{ row }">
-              <el-tag size="small" effect="plain" :type="transportMeta(row.transport).tag">
-                {{ transportMeta(row.transport).label }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="地址 / 命令" min-width="240">
-            <template #default="{ row }">
-              <span class="cell-endpoint">{{ mcpEndpoint(row) || '-' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="启用" width="80" align="center">
-            <template #default="{ row }">
-              <el-switch :model-value="row.enabled" @change="(v) => toggleMcp(row, v)" />
-            </template>
-          </el-table-column>
-          <el-table-column label="更新时间" width="140">
-            <template #default="{ row }">
-              <span class="cell-muted">{{ formatTime(row.updateTime) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="150" align="center">
-            <template #default="{ row }">
-              <el-button class="ext-op-btn" size="small" text type="primary" @click="runTest(row)">测试</el-button>
-              <el-button class="ext-op-btn" size="small" text type="primary" @click="openMcpEdit(row)">编辑</el-button>
-              <el-button class="ext-op-btn" size="small" text type="danger" @click="removeMcp(row)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
+            <div class="tab-toolbar">
+              <el-button :icon="Plus" type="primary" @click="openMcpCreate">新增服务</el-button>
+            </div>
 
-      <!-- ==================== Skill 技能 ==================== -->
-      <el-tab-pane label="Skill 技能" name="skill">
-        <div class="tab-toolbar">
-          <p class="tab-hint">
-            Skill 是标准技能包（skills/&lt;name&gt;/SKILL.md：frontmatter 的 name/description + Markdown 正文）。
-            提示词只常驻 name+description 目录，模型判断相关时经 load_skill 工具按需加载正文（渐进式披露）。
-          </p>
-          <el-button :icon="Plus" type="primary" @click="openSkillCreate">新增技能</el-button>
-        </div>
+            <el-table
+              v-loading="mcpLoading"
+              :data="mcpServers"
+              stripe
+              class="ext-table"
+              empty-text="暂无 MCP 服务，点击「新增服务」接入"
+            >
+              <el-table-column label="服务" min-width="200">
+                <template #default="{ row }">
+                  <div class="cell-name">{{ row.name }}</div>
+                  <div v-if="row.description" class="cell-source">{{ row.description }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="传输" width="150">
+                <template #default="{ row }">
+                  <el-tag size="small" effect="plain" :type="transportMeta(row.transport).tag">
+                    {{ transportMeta(row.transport).label }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="地址 / 命令" min-width="240">
+                <template #default="{ row }">
+                  <span class="cell-endpoint">{{ mcpEndpoint(row) || '-' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="启用" width="80" align="center">
+                <template #default="{ row }">
+                  <el-switch :model-value="row.enabled" @change="(v) => toggleMcp(row, v)" />
+                </template>
+              </el-table-column>
+              <el-table-column label="更新时间" width="140">
+                <template #default="{ row }">
+                  <span class="cell-muted">{{ formatTime(row.updateTime) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="150" align="center">
+                <template #default="{ row }">
+                  <el-button link type="primary" @click="runTest(row)">测试</el-button>
+                  <el-button link type="primary" @click="openMcpEdit(row)">编辑</el-button>
+                  <el-button link type="danger" @click="removeMcp(row)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
 
-        <el-table v-loading="skillLoading" :data="skills" row-key="name" class="ext-table" empty-text="暂无 Skill，点击「新增技能」创建">
-          <el-table-column label="技能" min-width="220">
-            <template #default="{ row }">
-              <div class="cell-name">{{ row.name }}</div>
-              <div v-if="row.description" class="cell-source">{{ row.description }}</div>
+          <!-- ==================== Skill 技能 ==================== -->
+          <el-tab-pane name="skill">
+            <template #label>
+              <span class="tab-label">
+                Skill 技能
+                <span v-if="skills.length" class="tab-count">{{ skills.length }}</span>
+              </span>
             </template>
-          </el-table-column>
-          <el-table-column label="正文" min-width="240">
-            <template #default="{ row }">
-              <span class="cell-endpoint">{{ (row.content || '').replace(/\s+/g, ' ').slice(0, 50) }}</span>
-              <span class="cell-muted">（{{ row.bodyLines || 0 }} 行<template v-if="row.resources?.length"> · {{ row.resources.join('/') }}</template>）</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="启用" width="80" align="center">
-            <template #default="{ row }">
-              <el-switch :model-value="row.enabled" @change="(v) => toggleSkill(row, v)" />
-            </template>
-          </el-table-column>
-          <el-table-column label="更新时间" width="140">
-            <template #default="{ row }">
-              <span class="cell-muted">{{ formatTime(row.updateTime) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="150" align="center">
-            <template #default="{ row }">
-              <el-button class="ext-op-btn" size="small" text type="primary" @click="openSkillPreview(row)">查看</el-button>
-              <el-button class="ext-op-btn" size="small" text type="primary" @click="openSkillEdit(row)">编辑</el-button>
-              <el-button class="ext-op-btn" size="small" text type="danger" @click="removeSkill(row)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
-    </el-tabs>
+
+            <div class="tab-toolbar">
+              <el-button :icon="Plus" type="primary" @click="openSkillCreate">新增技能</el-button>
+            </div>
+
+            <el-table
+              v-loading="skillLoading"
+              :data="skills"
+              row-key="name"
+              stripe
+              class="ext-table"
+              empty-text="暂无 Skill，点击「新增技能」创建"
+            >
+              <el-table-column label="技能" min-width="220">
+                <template #default="{ row }">
+                  <div class="cell-name">{{ row.name }}</div>
+                  <div v-if="row.description" class="cell-source">{{ row.description }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="正文" min-width="260">
+                <template #default="{ row }">
+                  <div class="cell-endpoint">{{ contentPreview(row.content) }}</div>
+                  <div class="cell-meta">
+                    {{ row.bodyLines || 0 }} 行
+                    <template v-if="row.resources?.length"> · {{ row.resources.join(' / ') }}</template>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="启用" width="80" align="center">
+                <template #default="{ row }">
+                  <el-switch :model-value="row.enabled" @change="(v) => toggleSkill(row, v)" />
+                </template>
+              </el-table-column>
+              <el-table-column label="更新时间" width="140">
+                <template #default="{ row }">
+                  <span class="cell-muted">{{ formatTime(row.updateTime) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="150" align="center">
+                <template #default="{ row }">
+                  <el-button link type="primary" @click="openSkillPreview(row)">查看</el-button>
+                  <el-button link type="primary" @click="openSkillEdit(row)">编辑</el-button>
+                  <el-button link type="danger" @click="removeSkill(row)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+        </el-tabs>
+      </el-card>
+    </div>
 
     <!-- ==================== MCP 新增 / 编辑弹窗 ==================== -->
     <el-dialog
@@ -621,48 +653,63 @@ onMounted(reload)
 </template>
 
 <style scoped>
-.ext-page {
-  width: 100%;
-  min-width: 0;
-  max-width: 1160px;
-  margin: 0 auto;
-  padding: 20px 16px 40px;
+.page {
+  min-height: 100vh;
 }
-.ext-head {
+.section {
+  margin-bottom: 24px;
+}
+.card-header {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
   flex-wrap: wrap;
 }
-.ext-title {
-  margin: 0;
-  font-size: 20px;
-  color: var(--pv-ink);
+.card-title {
+  font-weight: 700;
+  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
-.ext-sub {
-  margin: 4px 0 0;
-  font-size: 13px;
+.card-title::before {
+  content: '';
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--pv-ink);
+}
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ext-tabs :deep(.el-tabs__header) {
+  margin-bottom: 16px;
+}
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 页签上的计数胶囊：不额外占一行，把「有几个」放在最靠前的位置 */
+.tab-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
   color: var(--pv-text-secondary);
-}
-.ext-tabs {
-  margin-top: 12px;
+  background: var(--pv-tint);
 }
 .tab-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+  justify-content: flex-end;
   margin-bottom: 12px;
-}
-.tab-hint {
-  flex: 1;
-  min-width: 240px;
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--pv-text-secondary);
 }
 .ext-table {
   border-radius: 12px;
@@ -681,16 +728,14 @@ onMounted(reload)
   color: var(--pv-text-secondary);
   word-break: break-all;
 }
+.cell-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--pv-text-secondary);
+}
 .cell-muted {
   font-size: 13px;
   color: var(--pv-text-secondary);
-}
-.ext-op-btn {
-  padding: 0;
-  font-size: 13px;
-}
-.ext-op-btn + .ext-op-btn {
-  margin-left: 12px;
 }
 .full-width {
   width: 100%;
