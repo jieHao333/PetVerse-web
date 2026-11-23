@@ -506,16 +506,8 @@ const gotoProfile = (userId) => {
     <div class="page-container">
       <div class="page-head">
         <div>
-          <h2 class="page-title">{{ topicMode ? `话题 · #${category}` : '圈子' }}</h2>
-          <p class="page-desc">
-            {{
-              topicMode
-                ? `浏览「${category}」话题下的全部动态`
-                : '看看大家与宠物在一起的每个瞬间 · 发布新动态可为宠物 +10 经验'
-            }}
-          </p>
+          <h2 class="page-title">{{ topicMode ? `话题 · [${category}]` : '' }}</h2>
         </div>
-        <el-button type="primary" size="large" :icon="Plus" @click="openCreate">发布动态</el-button>
       </div>
 
       <div class="toolbar pv-panel">
@@ -538,6 +530,7 @@ const gotoProfile = (userId) => {
           @clear="onSearch"
         />
         <el-button @click="onSearch">搜索</el-button>
+        <el-button type="primary" size="large" :icon="Plus" class="toolbar-publish" @click="openCreate">发布动态</el-button>
       </div>
 
       <!-- 动态流 -->
@@ -760,6 +753,10 @@ const gotoProfile = (userId) => {
 }
 .toolbar-input.narrow {
   width: 160px;
+}
+/* 发布按钮固定在工具栏最右侧 */
+.toolbar-publish {
+  margin-left: auto;
 }
 /* 话题标签：点击新标签页打开同话题动态 */
 .topic-chip {
