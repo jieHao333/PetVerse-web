@@ -147,6 +147,9 @@ const loadingHistory = ref(false) // 历史对话加载中
 // approval 为人工审批卡片：{ approvalId, title, summary, status, deciding, reason, error }
 const messages = ref([])
 const inputText = ref('') // 输入框内容
+// 字数提示的显示阈值：只有逼近上限（75%）时才提示，平时不占位。
+// 提示行常驻会让胶囊底部多出 20px 空白，把输入行顶到偏上，视觉上就不在盒子中间了
+const COUNTER_VISIBLE_AT = 1500
 const sending = ref(false) // 是否正在流式生成中
 const scrollbarRef = ref(null) // 消息区 el-scrollbar 实例
 const inputRef = ref(null) // 输入框实例：点推荐问题后把焦点交还给它
@@ -221,7 +224,7 @@ const usePrompt = (q) => {
 const inputPlaceholder = computed(() =>
   isNarrow.value
     ? `咨询 ${pet.value?.name || '它'} 的健康问题…`
-    : `咨询 ${pet.value?.name || '它'} 的健康、习性等问题，也可以直接发送照片 / 语音...`,
+    : `咨询 ${pet.value?.name || '它'} 的健康、习性等问题，也可以查询商城好物哦！`,
 )
 
 // ---------- 待发送附件（选择后立即上传，发送时一并携带） ----------
@@ -1485,11 +1488,10 @@ const onEnterKey = (e) => {
                   {{ pendingApproval?.approval?.deciding ? '执行中' : '待确认' }}
                 </span>
               </div>
-              <!-- 输入提示行：桌面端给快捷键与字数；移动端只在有内容时显示字数，
-                   空输入时整行收起，避免胶囊底部多出一条空白 -->
-              <div v-if="inputText.length || !isNarrow" class="composer-hint">
-                <span class="hint-keys">Enter 发送 · Shift + Enter 换行</span>
-                <span v-if="inputText.length" class="hint-count">{{ inputText.length }}/2000</span>
+              <!-- 字数提示：只在快写到上限时出现，其余时候整行不渲染，
+                   胶囊上下内边距因此对称，光标与附件图标才真正落在输入框正中 -->
+              <div v-if="inputText.length >= COUNTER_VISIBLE_AT" class="composer-hint">
+                <span class="hint-count">{{ inputText.length }}/2000</span>
               </div>
               <!-- 隐藏的附件选择输入框（accept 限定图片 / 音频 / 视频，可多选） -->
               <input
@@ -2736,7 +2738,7 @@ const onEnterKey = (e) => {
   position: relative;
   z-index: 1;
   margin: 0 22px 20px;
-  padding: 10px 12px 8px;
+  padding: 9px 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2822,7 +2824,9 @@ const onEnterKey = (e) => {
   flex-shrink: 0;
   width: 38px;
   height: 38px;
-  margin-bottom: 1px;
+  /* 38px 按钮 + 43px 输入行：留 3px 才能让按钮中心落在文字最后一行的中线上
+     （输入框下内边距 9px + 半行高 12.3px ≈ 21.3px，正好是 19px 半高 + 3px） */
+  margin-bottom: 3px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2859,7 +2863,7 @@ const onEnterKey = (e) => {
   min-width: 86px;
   height: 38px;
   padding: 0 15px;
-  margin-bottom: 1px;
+  margin-bottom: 3px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2924,11 +2928,11 @@ const onEnterKey = (e) => {
   cursor: default;
 }
 
-/* 输入提示行：桌面给快捷键，移动端只留字数 */
+/* 字数提示行：只在逼近上限时出现，右对齐贴着发送按钮，不再常驻占位 */
 .composer-hint {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   min-height: 14px;
   padding: 0 6px 1px;
@@ -3321,7 +3325,7 @@ const onEnterKey = (e) => {
   }
   .chat-input {
     margin: 0 12px 12px;
-    padding: 8px 10px 6px 12px;
+    padding: 8px 10px 8px 12px;
     border-radius: 22px;
   }
   .input-row {
@@ -3331,10 +3335,12 @@ const onEnterKey = (e) => {
     min-width: 68px;
     height: 36px;
     padding: 0 12px;
+    margin-bottom: 3.5px;
   }
   .attach-btn {
     width: 34px;
     height: 34px;
+    margin-bottom: 4.5px;
   }
   .to-bottom {
     right: 14px;
