@@ -4,7 +4,7 @@
 
 **Vue 3 + Vite 的宠物社区前端**
 
-宠物动态 · 好友私聊 · 虚拟宠物 · 周边商城 · 优惠券 · AI 养宠顾问 · 数据看板
+宠物动态 · 好友私聊 · 周边商城 · 优惠券 · AI 养宠顾问 · 数据看板
 
 [![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?style=flat-square&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vite.dev/)
@@ -13,8 +13,6 @@
 [![Axios](https://img.shields.io/badge/Axios-1.19-5A29E4?style=flat-square&logo=axios&logoColor=white)](https://axios-http.com/)
 [![Node](https://img.shields.io/badge/Node-18%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/374426703/PetVerse-web/pulls)
-
-[项目简介](#项目简介) · [快速开始](#快速开始) · [技术栈](#技术栈) · [Docker 部署](#docker-部署) · [页面](#页面) · [鉴权与埋点](#鉴权与埋点)
 
 **后端仓库**：[374426703/PetVerse](https://github.com/374426703/PetVerse)
 
