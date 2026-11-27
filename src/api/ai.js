@@ -81,8 +81,8 @@ function dispatchSseBlock(block, handlers) {
  * @param {string} options.message 用户消息（纯附件发送时可为空串）
  * @param {Object} options.pet 当前咨询的宠物画像（id/name/species/breed/age 等）
  * @param {number|string|null} [options.sessionId] 会话 ID；缺省时后端自动新建会话并通过 meta 事件回传
- * @param {Array} [options.attachments] 多模态附件列表 [{ type, url, mime, name, size }]，
- *   由 uploadChatMedia 上传后获得；图片走视觉模型、音频自动转写、视频以文字占位
+ * @param {Array} [options.attachments] 图片附件列表 [{ type, url, mime, name, size }]，
+ *   由 uploadChatMedia 上传后获得；当前生效模型支持视觉时图片会直接送给模型
  * @param {Function} [options.onMeta] 会话元信息回调：({ sessionId }) => void
  * @param {Function} [options.onRefs] RAG 引用回调：(items) => void
  * @param {Function} [options.onDelta] 增量回调：(content) => void
@@ -411,10 +411,10 @@ export function approveChat({ sessionId, approvalId, approved, reason = '', onMe
 }
 
 /**
- * 上传多模态聊天附件（图片 / 音频 / 视频）
- * 超时放宽到 120s 与项目内其他上传接口一致；大小上限由后端校验
- * （图片 10MB / 音频 20MB / 视频 50MB），超限返回业务错误 message
- * @param {File} file 原始文件对象
+ * 上传对话图片附件（仅支持图片）
+ * 超时放宽到 120s 与项目内其他上传接口一致；大小上限由后端校验（默认 10MB），
+ * 超限返回业务错误 message
+ * @param {File} file 原始图片文件
  * @returns {Promise<Object>} { type, url, mime, name, size }，原样放入 chatStream 的 attachments
  */
 export const uploadChatMedia = (file) => {
@@ -555,6 +555,37 @@ export const updateSkill = (name, data) => request.put(`/ai/admin/skills/${encod
 
 /** 删除 Skill 技能包（按技能名，整目录删除） */
 export const deleteSkill = (name) => request.delete(`/ai/admin/skills/${encodeURIComponent(name)}`)
+
+/* ---------------- 模型管理（供应商 + 当前生效模型，管理员限定） ----------------
+ * 结构参照 ZCode / Zed：供应商描述「协议 + Base URL + Key」，其下挂多个模型；
+ * 全局只有一个「当前生效模型」，切换后下一轮对话立即生效（后端缓存同步失效）。
+ */
+
+/**
+ * 模型供应商列表 + 当前生效模型 + 运行时实际配置
+ * data 为 { items: [{ id, name, protocol, baseUrl, apiKeyMask, hasApiKey, models, description, enabled, createTime, updateTime }],
+ *           active: { providerId, model },
+ *           runtime: { source: 'db'|'env', providerName, protocol, baseUrl, model, vision, note },
+ *           mock: 是否被 MOCK_CHAT 强制走模拟回复 }
+ */
+export const listModelProviders = () => request.get('/ai/admin/models')
+
+/** 新增模型供应商（name / protocol / baseUrl / apiKey / models / description / enabled） */
+export const createModelProvider = (data) => request.post('/ai/admin/models', data)
+
+/** 整体更新模型供应商（启停开关也走这里；apiKey 留空表示沿用原 Key） */
+export const updateModelProvider = (id, data) => request.put(`/ai/admin/models/${id}`, data)
+
+/** 删除模型供应商（若它正是当前生效来源，指针会被一并清空） */
+export const deleteModelProvider = (id) => request.delete(`/ai/admin/models/${id}`)
+
+/** 切换当前生效模型（下一轮对话立即使用；data 为 { active, runtime }） */
+export const activateModel = (providerId, model) =>
+  request.post('/ai/admin/models/activate', { providerId, model })
+
+/** 测试模型连通性（要真跑一次推理，超时放宽到 60s），data 为 { model, protocol, latencyMs, reply } */
+export const testModel = (providerId, model) =>
+  request.post('/ai/admin/models/test', { providerId, model }, { timeout: 60000 })
 
 /* ---------------- 以下为新增 AI 能力（均为普通 JSON 接口，走 axios 封装） ---------------- */
 

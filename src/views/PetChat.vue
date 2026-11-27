@@ -79,23 +79,13 @@ const kbKindLabel = (kind) => (kind || 'md').toUpperCase()
 // 相关度展示：后端下发的是余弦相似度（0~1），转成百分比整数
 const kbScoreText = (score) => `${Math.round((Number(score) || 0) * 100)}%`
 
-// ---------- 多模态附件（图片 / 音频 / 视频） ----------
-// 与后端 app/media.py 的判定规则对齐：MIME 主类型优先，扩展名兜底
+// ---------- 对话附件（仅支持图片，音频 / 视频已下线） ----------
+// 与后端 app/media.py 的判定规则对齐：MIME 白名单优先，扩展名兜底
 const MEDIA_RULES = {
   image: {
-    mimes: ['image/'],
+    mimes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'],
     exts: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'],
     label: '图片', maxMB: 10, accept: 'image/*',
-  },
-  audio: {
-    mimes: ['audio/'],
-    exts: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'],
-    label: '音频', maxMB: 20, accept: 'audio/*',
-  },
-  video: {
-    mimes: ['video/'],
-    exts: ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv'],
-    label: '视频', maxMB: 50, accept: 'video/*',
   },
 }
 const MEDIA_ACCEPT = Object.values(MEDIA_RULES).map((r) => r.accept).join(',')
@@ -103,13 +93,10 @@ const MEDIA_ACCEPT = Object.values(MEDIA_RULES).map((r) => r.accept).join(',')
 const MAX_ATTACHMENTS = 4
 
 const detectMediaKind = (file) => {
-  const mime = file.type || ''
-  for (const [kind, rule] of Object.entries(MEDIA_RULES)) {
-    if (rule.mimes.some((m) => mime.startsWith(m))) return kind
-  }
+  const mime = (file.type || '').toLowerCase()
   const ext = (file.name || '').split('.').pop().toLowerCase()
   for (const [kind, rule] of Object.entries(MEDIA_RULES)) {
-    if (rule.exts.includes(ext)) return kind
+    if (rule.mimes.includes(mime) || rule.exts.includes(ext)) return kind
   }
   return null
 }
@@ -254,7 +241,7 @@ const onFilesChosen = (e) => {
     }
     const kind = detectMediaKind(file)
     if (!kind) {
-      ElMessage.error(`「${file.name}」不是支持的图片 / 音频 / 视频文件`)
+      ElMessage.error(`「${file.name}」不是支持的图片文件（jpg / png / webp / gif / bmp）`)
       continue
     }
     const rule = MEDIA_RULES[kind]
@@ -267,8 +254,8 @@ const onFilesChosen = (e) => {
       kind,
       name: file.name || '附件',
       size: file.size,
-      // 图片用本地 blob 预览（上传成功后仍用该地址展示，回放 URL 只在历史消息里用）
-      previewUrl: kind === 'image' ? URL.createObjectURL(file) : '',
+      // 本地 blob 预览（上传成功后仍用该地址展示，回放 URL 只在历史消息里用）
+      previewUrl: URL.createObjectURL(file),
       uploading: true,
       failed: false,
       att: null,
@@ -1266,7 +1253,7 @@ const onEnterKey = (e) => {
                           </span>
                         </template>
                         <template v-else>
-                          <!-- 用户消息的多模态附件：图片（点击放大）/ 视频 / 音频（含转写文本） -->
+                          <!-- 用户消息的图片附件（点击放大）；历史里残留的音频 / 视频不再渲染 -->
                           <div
                             v-if="item.msg.role === 'user' && item.msg.attachments?.length"
                             class="bubble-media"
@@ -1281,20 +1268,6 @@ const onEnterKey = (e) => {
                                 class="media-img"
                                 preview-teleported
                               />
-                              <video
-                                v-else-if="att.type === 'video'"
-                                :src="att.url"
-                                controls
-                                preload="metadata"
-                                class="media-video"
-                              ></video>
-                              <div v-else-if="att.type === 'audio'" class="media-audio">
-                                <div class="audio-name">{{ att.name || '语音消息' }}</div>
-                                <audio :src="att.url" controls preload="metadata" class="audio-player"></audio>
-                                <div v-if="att.transcript" class="audio-transcript">
-                                  转写：{{ att.transcript }}
-                                </div>
-                              </div>
                             </template>
                           </div>
                           <span
@@ -1434,7 +1407,7 @@ const onEnterKey = (e) => {
                   class="pending-file"
                   :class="{ failed: f.failed }"
                 >
-                  <img v-if="f.kind === 'image' && f.previewUrl" :src="f.previewUrl" class="pf-thumb" alt="" />
+                  <img v-if="f.previewUrl" :src="f.previewUrl" class="pf-thumb" alt="" />
                   <div v-else class="pf-kind">{{ MEDIA_RULES[f.kind]?.label || '附件' }}</div>
                   <div class="pf-info">
                     <div class="pf-name">{{ f.name }}</div>
@@ -1448,12 +1421,12 @@ const onEnterKey = (e) => {
                 </div>
               </div>
               <div class="input-row">
-                <el-tooltip content="添加图片 / 音频 / 视频" placement="top">
+                <el-tooltip content="添加图片" placement="top">
                   <button
                     type="button"
                     class="attach-btn"
                     :disabled="sending"
-                    aria-label="添加图片、音频或视频"
+                    aria-label="添加图片"
                     @click="pickFiles"
                   >
                     <el-icon :size="18"><Paperclip /></el-icon>
@@ -1493,7 +1466,7 @@ const onEnterKey = (e) => {
               <div v-if="inputText.length >= COUNTER_VISIBLE_AT" class="composer-hint">
                 <span class="hint-count">{{ inputText.length }}/2000</span>
               </div>
-              <!-- 隐藏的附件选择输入框（accept 限定图片 / 音频 / 视频，可多选） -->
+              <!-- 隐藏的附件选择输入框（accept 仅图片，可多选） -->
               <input
                 ref="fileInputRef"
                 type="file"
@@ -3059,7 +3032,7 @@ const onEnterKey = (e) => {
   transform: translateY(5px);
 }
 
-/* 气泡内多模态附件 */
+/* 气泡内图片附件 */
 .bubble-media {
   display: flex;
   flex-direction: column;
@@ -3082,37 +3055,6 @@ const onEnterKey = (e) => {
   height: auto;
   max-height: 240px;
   object-fit: contain;
-}
-.media-video {
-  width: 240px;
-  max-width: 100%;
-  max-height: 200px;
-  border-radius: 10px;
-  display: block;
-  background: #000;
-}
-.media-audio {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-}
-.audio-name {
-  font-size: 12px;
-  opacity: 0.85;
-  margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.audio-player {
-  width: 100%;
-  height: 36px;
-}
-.audio-transcript {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-  opacity: 0.85;
 }
 
 /* ---------- 长期记忆弹窗 ---------- */

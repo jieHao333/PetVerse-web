@@ -117,7 +117,7 @@ docker run -d --name petverse-web -p 80:80 petverse-web:latest
 | `/admin/merchant-audit`、`/admin/merchant-manage` | 商家审核、商家管理 | `ADMIN` |
 | `/admin/coupons` | 优惠券管理 | `ADMIN` |
 | `/admin/bi` | 数据看板 | `ADMIN` |
-| `/admin/ai-extensions` | AI 扩展管理（MCP / Skill） | `ADMIN` |
+| `/admin/ai-extensions` | AI 扩展管理（MCP / Skill / 模型切换） | `ADMIN` |
 | `/kb` | 知识库管理 | `ADMIN` |
 
 ## 鉴权与埋点
